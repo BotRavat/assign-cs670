@@ -1,115 +1,291 @@
-#include <iostream>
-#include "../headerFiles/gen_queries.h"
-
-#include "common.hpp"
-#include <boost/asio.hpp>
+#include <utility>
 #include <iostream>
 #include <random>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <boost/asio.hpp>
+#include "../headerFiles/gen_queries.h"
+#include "../common.hpp"
 
-
-
+using boost::asio::awaitable;
+using boost::asio::co_spawn;
+using boost::asio::detached;
+using boost::asio::use_awaitable;
 using boost::asio::ip::tcp;
 
-// Random number generator
- 
-// Send a number to a client
-// boost::asio::awaitable<void> handle_client(tcp::socket socket, const std::string& name) {
-//     uint32_t rnd = random_uint32();
-//     std::cout << "P2 sending to " << name << ": " << rnd << "\n";
-//     co_await boost::asio::async_write(socket, boost::asio::buffer(&rnd, sizeof(rnd)), boost::asio::use_awaitable);
-// }
-
-// // Run multiple coroutines in parallel
-// template <typename... Fs>
-// void run_in_parallel(boost::asio::io_context& io, Fs&&... funcs) {
-//     (boost::asio::co_spawn(io, funcs, boost::asio::detached), ...);
-// }
-
-
-int main()
+// Run multiple coroutines in parallel
+template <typename... Fs>
+void run_in_parallel(boost::asio::io_context &io, Fs &&...funcs)
 {
+    // (co_spawn(io, funcs, detached), ...);
+    std::vector<awaitable<void>> tasks = {funcs()...};
+    for (auto &t : tasks)
+        co_await t;
+    co_return;
+}
 
-    int sizeOfVector = 5, modValue = 64, numberOfUsers = 2, numberOfItems = 3;
-    LatentVector userVectors, itemVectors;
-    LatentVectorShares uVShares, iVShares;
-
-    userVectors = generateLatentVector(sizeOfVector, modValue, numberOfUsers, 0);
-    itemVectors = generateLatentVector(sizeOfVector, modValue, numberOfItems, 1);
-    uVShares = generateVectorShares(userVectors, modValue);
-    iVShares = generateVectorShares(itemVectors, modValue);
-
-
-
-// setting up connection with Party0 and Party1
-
-
-
-
-
-    std::cout << "Printing user vectors \n";
-    for (size_t i = 0; i < userVectors.lVector.size(); i++)
+awaitable<void> send_shares_to_party(
+    tcp::socket &socket,
+    int32_t n, int32_t k, int32_t modValue,
+    std::vector<int> AShare,
+    int b,
+    std::vector<int> CShare,
+    std::vector<int> vectorA, std::vector<int> vectorB,
+    int scalarC,
+    std::vector<int> eshare,
+    std::vector<int> AV,
+    std::vector<std::vector<int>> BM,
+    std::vector<int> CV,
+    int oneShare, int query_i)
+{
+    try
     {
-        std::cout << "Vector " << i << ": ";
-        for (size_t j = 0; j < userVectors.lVector[i].size(); j++)
-            std::cout << userVectors.lVector[i][j] << " ";
-        std::cout << "\n";
+        co_await send_int(socket, n, "n");
+        co_await send_int(socket, k, "k");
+        co_await send_int(socket, modValue, "modValue");
+
+        co_await sendVector(socket, AV);
+        co_await sendMatrix(socket, BM);
+        co_await sendVector(socket, CV);
+
+        co_await sendVector(socket, vectorA);
+        co_await sendVector(socket, vectorB);
+        co_await send_int(socket, scalarC, "scalarC");
+
+        co_await sendVector(socket, AShare);
+        co_await send_int(socket, b, "b");
+        co_await sendVector(socket, CShare);
+
+
+        co_await sendVector(socket, eshare);
+
+
+        co_await send_int(socket, oneShare, "oneShare");
+        co_await send_int(socket, query_i, "query_i");
+
+        std::cout << "Dealer: sent shares and triplets to a connected party.\n";
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << "Dealer send error: " << e.what() << "\n";
+    }
+    co_return;
+}
+
+awaitable<std::vector<int>> receiveFinalShares(tcp::socket &socket, int k, const std::string &name)
+{
+    std::vector<int> finalShare;
+    co_await recvVector(socket, finalShare);
+    std::cout << "\n Dealer: received final share from a party: " << name << "\n";
+    co_return finalShare;
+}
+
+awaitable<void> sendAndRcvFromParties(
+    boost::asio::io_context &io_context,
+    int n, int k, int modValue,
+    int query_i, int query_j)
+{
+    // Generate all shares
+    auto svTriplet = generateScalarandVectorTriplet(k, modValue);
+    auto svTripletShares = sAndVectorTripletShares(svTriplet, modValue);
+
+    auto vTriplet = generateVectorTriplet(k, modValue);
+    auto vTripletSharesS = vTripletShares(vTriplet, modValue);
+
+    auto oneShares = sharesOfOne(modValue);
+
+    std::vector<int> e(n, 0);
+    if (query_j >= 0 && query_j < n)
+        e[query_j] = 1;
+    auto eShares = sharesOfe(e, modValue);
+
+    auto mvTriplet = generateMTriplet(n, k, modValue);
+    auto mvTripletShares = genMShare(mvTriplet, modValue);
+
+    std::cout << "mvTripletShare size" << mvTripletShares.AMShare0.size();
+
+    try
+    {
+        // boost::asio::io_context &io_context = co_await boost::asio::this_coro::executor;
+        // boost::asio::io_context io_context;
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 9002));
+
+        tcp::socket socket_p0(io_context);
+        std::cout << "Dealer: waiting for P0...\n";
+
+        co_await acceptor.async_accept(socket_p0, use_awaitable);
+        // acceptor.accept(socket_p0);
+        std::cout << "Dealer: P0 connected.\n";
+
+        tcp::socket socket_p1(io_context);
+        std::cout << "Dealer: waiting for P1...\n";
+        co_await acceptor.async_accept(socket_p1, use_awaitable);
+        // acceptor.accept(socket_p1);
+        std::cout << "Dealer: P1 connected.\n";
+
+        // Send sequentially: first P0, then P1
+        co_await send_shares_to_party(socket_p0, n, k, modValue,
+                                      svTripletShares.AShare0, svTripletShares.b0, svTripletShares.CShare0,
+                                      vTripletSharesS.vectorA0, vTripletSharesS.vectorB0, vTripletSharesS.scalarC0,
+                                      eShares.eshare0,
+                                      mvTripletShares.AVShare0, mvTripletShares.BMShare0, mvTripletShares.CVShare0,
+                                      oneShares.first, query_i);
+
+        co_await send_shares_to_party(socket_p1, n, k, modValue,
+                                      svTripletShares.AShare1, svTripletShares.b1, svTripletShares.CShare1,
+                                      vTripletSharesS.vectorA1, vTripletSharesS.vectorB1, vTripletSharesS.scalarC1,
+                                      eShares.eshare1,
+                                      mvTripletShares.AVShare1, mvTripletShares.BMShare1, mvTripletShares.CVShare1,
+                                      oneShares.second, query_i);
+        // Launch coroutines for P0 and P1 in parallel
+        // run_in_parallel(io_context, [&]() -> awaitable<void>
+        //                 {
+        //         co_await send_shares_to_party(socket_p0,
+        //                                       n, k, modValue,
+        //                                       svTripletShares.AShare0, svTripletShares.b0, svTripletShares.CShare0,
+        //                                       vTripletSharesS.vectorA0, vTripletSharesS.vectorB0, vTripletSharesS.scalarC0,
+        //                                       eShares.eshare0,
+        //                                       mvTripletShares.AShare0, mvTripletShares.BB0, mvTripletShares.C0,
+        //                                       oneShares.first);
+        //         co_return; }, [&]() -> awaitable<void>
+        //                 {
+        //         co_await send_shares_to_party(socket_p1,
+        //                                       n, k, modValue,
+        //                                       svTripletShares.AShare1, svTripletShares.b1, svTripletShares.CShare1,
+        //                                       vTripletSharesS.vectorA1, vTripletSharesS.vectorB1, vTripletSharesS.scalarC1,
+        //                                       eShares.eshare1,
+        //                                       mvTripletShares.AShare1, mvTripletShares.B1, mvTripletShares.C1,
+        //                                       oneShares.second);
+        //         co_return; });
+
+        std::vector<int> finalShare0 = co_await receiveFinalShares(socket_p0, k, "party0");
+        std::vector<int> finalShare1 = co_await receiveFinalShares(socket_p1, k, "party1");
+        std::cout << "here";
+        // io_context.run();
+
+        // Reconstruct vector
+        std::vector<int> reconstructed(k);
+        for (int i = 0; i < k; i++)
+            reconstructed[i] = (finalShare0[i] + finalShare1[i]) % modValue;
+
+        std::ofstream outFile("reconstructed_user_vector.txt");
+        for (int val : reconstructed)
+            outFile << val << " ";
+        outFile << "\n";
+        std::cout << "Dealer: reconstructed user vector saved.\n";
+
+        socket_p0.close();
+        socket_p1.close();
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << "Exception in dealer: " << e.what() << "\n";
     }
 
-    std::cout << "User Vector shares \n";
-    for (size_t i = 0; i < uVShares.lvShare0.size(); i++)
-    {
-        std::cout << "Share 0: ";
-        for (size_t j = 0; j < uVShares.lvShare0[i].size(); j++)
-            std::cout << uVShares.lvShare0[i][j] << " ";
-        std::cout << "\n";
-        std::cout << "Share 1: ";
+    // co_return;
+}
 
-        for (size_t j = 0; j < uVShares.lvShare1[i].size(); j++)
-            std::cout << uVShares.lvShare1[i][j] << " ";
-        std::cout << "\n";
+std::vector<std::vector<int>> loadMatrix(const std::string &filename)
+{
+    std::ifstream inFile(filename);
+    if (!inFile)
+    {
+        std::cerr << "Error opening file: " << filename << "\n";
+        return {};
     }
 
-    std::cout << "Printing item vectors \n";
-
-    for (size_t i = 0; i < itemVectors.lVector.size(); i++)
+    std::vector<std::vector<int>> matrix;
+    std::string line;
+    while (std::getline(inFile, line))
     {
-        std::cout << "Vector " << i << ": ";
-
-        for (size_t j = 0; j < itemVectors.lVector[i].size(); j++)
-            std::cout << itemVectors.lVector[i][j] << " ";
-        std::cout << "\n";
+        std::stringstream ss(line);
+        std::vector<int> row;
+        int val;
+        while (ss >> val)
+            row.push_back(val);
+        if (!row.empty())
+            matrix.push_back(row);
     }
+    return matrix;
+}
 
-    std::cout << "Item Vector shares \n";
-    for (size_t i = 0; i < iVShares.lvShare0.size(); i++)
+int main(int argc, char *argv[])
+{
+    try
     {
-        std::cout << "Share 0: ";
-        for (size_t j = 0; j < iVShares.lvShare0[i].size(); j++)
-            std::cout << iVShares.lvShare0[i][j] << " ";
-        std::cout << "\n";
-        std::cout << "Share 1: ";
 
-        for (size_t j = 0; j < iVShares.lvShare1[i].size(); j++)
-            std::cout << iVShares.lvShare1[i][j] << " ";
-        std::cout << "\n";
+        int m; // number of users
+        int k; // number of features
+        int n; // number of items
+        int modValue = 64;
+        // std::cout << "Enter number of users :" std::cin >> m;
+        // std::cout << "\n Enter number of items :" std::cin >> n;
+        // std::cout << "\n Enter number of features :" std::cin >> k;
+
+        std::cout << "loading matrix \n";
+
+        std::vector<std::vector<int>> U0 = loadMatrix("data/U_ShareMatrix0.txt");
+        std::vector<std::vector<int>> U1 = loadMatrix("data/U_ShareMatrix1.txt");
+        std::vector<std::vector<int>> V0 = loadMatrix("data/V_ShareMatrix0.txt");
+        std::vector<std::vector<int>> V1 = loadMatrix("data/V_ShareMatrix1.txt");
+
+        if (U0.empty() || U1.empty() || V0.empty() || V1.empty())
+        {
+            std::cerr << "Error loading matrices.\n";
+            return -1;
+        }
+
+        m = U0.size();    // number of users
+        k = U0[0].size(); // number of features
+        n = V0.size();    // number of items
+        // int modValue = 64;
+
+        int numQueries;
+        std::vector<std::pair<int, int>> queries;
+        std::cout << "Enter number of Queries: ";
+        std::cin >> numQueries;
+        std::cout << "\n Enter Queries: ";
+        for (int i = 0; i < numQueries; i++)
+        {
+            int a, b;
+            std::cin >> a >> b;
+            queries.push_back({a, b});
+        }
+
+        // int numQueries = std::atoi(argv[1]);
+        // if (argc < 2)
+        // {
+        //     std::cerr << "Usage: " << argv[0] << " numQueries i1 j1 i2 j2 ...\n";
+        //     return -1;
+        // }
+        // for (int q = 0; q < numQueries; ++q)
+        // {
+        //     int i = std::atoi(argv[2 + 2 * q]);
+        //     int j = std::atoi(argv[2 + 2 * q + 1]);
+        //     queries.emplace_back(i, j);
+        // }
+
+        boost::asio::io_context io_context;
+        for (auto &qpair : queries)
+        {
+            int query_i = qpair.first;  // user index
+            int query_j = qpair.second; // item index
+
+            std::cout << "Processing query (" << query_i << ", " << query_j << ")\n";
+
+            co_spawn(io_context, [&]() -> awaitable<void>
+                     {
+                 co_await sendAndRcvFromParties(io_context, n, k, modValue, query_i, query_j);
+                 co_return; }, boost::asio::detached);
+            io_context.run();
+            io_context.restart();
+        }
     }
-
-    ScalarTriplet sTriplet = generateScalarTriplet(modValue);
-    std::cout << "a: " << sTriplet.a << " a: " << sTriplet.b << " c: " << sTriplet.c << "\n";
-
-    ScalarTripletShares scalarShares = sTripletShares(sTriplet, modValue);
-    std::cout << "a0: " << scalarShares.a0 << " a1: " << scalarShares.a1 << " b0: " << scalarShares.b0 << " b1: " << scalarShares.b1 << " c0:" << scalarShares.c0 << " c1: " << scalarShares.c1 << "\n";
-
-    VectorTriplet vTriplet = generateVectorTriplet(sizeOfVector, modValue);
-    std::cout << "Vector A: ";
-    for (int i = 0; i < sizeOfVector; i++)
-        std::cout << vTriplet.vectorA[i] << " ";
-    std::cout << "\n";
-    std::cout << "Vector B: ";
-    for (int i = 0; i < sizeOfVector; i++)
-        std::cout << vTriplet.vectorB[i] << " ";
-    std::cout << "\n";
-    std::cout << "C: " << vTriplet.scalarC << "\n";
+    catch (std::exception &e)
+    {
+        std::cerr << "Coordinator exception: " << e.what() << "\n";
+    }
 
     return 0;
 }

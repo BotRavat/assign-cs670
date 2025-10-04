@@ -1,23 +1,35 @@
 #ifndef GEN_QUERIES_H
 #define GEN_QUERIES_H
 
-#include <vector>
 #include <utility>
+#include <vector>
 #include <cstdint>
 #include "gen_queries.h"
 
-// mpcDotProduct, mpcScalarMultiplication
 
-// int mpcVectorandScalarMul(int alpha, int b, int beta, int a, int c,int modValue);
+using namespace std;
+vector<int> mpcVectorandMatrixMul(
+    vector<int> alphaV,
+    vector<vector<int>>V0,
+    vector<vector<int>> betaM,
+    vector<int> AVShare0,
+    vector<int> CShare0,
+    int modValue);
 
-std::vector<int> mpcVectorandScalarMul(
-    std::vector<int> alpha,
-    int BShare,
+
+vector<int> mpcVectorandScalarMul(
+    vector<int> alpha,
+    int bShare,
     int beta,
-    std::vector<int> AShare,
-    std::vector<int> CShare,
-    int modValue );
+    vector<int> AShare,
+    vector<int> CShare, int party,
+    int modValue);
 
-int mpcDotProduct(std::vector<int> alpha, std::vector<int> b, std::vector<int> beta, std::vector<int> a, int c,int modValue);
+int mpcDotProduct(vector<int> alpha,
+                  vector<int> b,
+                  vector<int> beta,
+                  vector<int> a,
+                  int c, int party, int modValue);
+
 
 #endif
