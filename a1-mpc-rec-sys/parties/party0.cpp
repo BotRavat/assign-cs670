@@ -250,6 +250,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         */
 
         // get beavers triplet for vectors from dealer
+        // vectorA0,vectorB0,scalarC0
 
         // sent blinded value to party S1
         // UA0=U0[i]+A0, VB0=V0[i]+B0   // vector addition

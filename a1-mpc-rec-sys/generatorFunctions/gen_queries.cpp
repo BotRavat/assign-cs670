@@ -4,31 +4,33 @@
 #include <stdexcept>
 #include <limits>
 
+using namespace std;
+
 namespace
 {
-  std::mt19937_64 &rngDataVector() // on every call of distributor it will generate next set of values thats why for generate and and generateShare will generate different numbers
+  mt19937_64 &rngDataVector() // on every call of distributor it will generate next set of values thats why for generate and and generateShare will generate different numbers
   {
-    static std::mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
+    static mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
     return genDataVector;
   }
-  std::mt19937_64 &rngTripletVector()
+  mt19937_64 &rngTripletVector()
   {
-    static std::mt19937_64 genTripletVector(54320);
+    static mt19937_64 genTripletVector(54320);
     return genTripletVector;
   }
-  std::mt19937_64 &rngItemVector()
+  mt19937_64 &rngItemVector()
   {
-    static std::mt19937_64 genItemVector(14370);
+    static mt19937_64 genItemVector(14370);
     return genItemVector;
   }
-  std::mt19937_64 &rngTripletScalar()
+  mt19937_64 &rngTripletScalar()
   {
-    static std::mt19937_64 genTripletScalar(1470);
+    static mt19937_64 genTripletScalar(1470);
     return genTripletScalar;
   }
-  std::mt19937_64 &rngTripletMatrix()
+  mt19937_64 &rngTripletMatrix()
   {
-    static std::mt19937_64 genTripletMatrix(13205);
+    static mt19937_64 genTripletMatrix(13205);
     return genTripletMatrix;
   }
 }
@@ -36,16 +38,16 @@ namespace
 LatentVector generateLatentVector(int sizeOfVector, int modValue, int numOfVectors, int vectorType)
 {
   if (sizeOfVector < 0)
-    throw std::invalid_argument("n < 0");
+    throw invalid_argument("n < 0");
   if (modValue <= 0)
-    throw std::invalid_argument("mod <= 0");
+    throw invalid_argument("mod <= 0");
 
-  // std::uniform_int_distribution<uint64_t> dist;
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1); // above statement will also generate but we provided range
+  // uniform_int_distribution<uint64_t> dist;
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1); // above statement will also generate but we provided range
   LatentVector lVector;
   int randomNum;
 
-  std::mt19937_64 *rngPtr = nullptr;
+  mt19937_64 *rngPtr = nullptr;
   if (vectorType == 0)
   {
     rngPtr = &rngDataVector();
@@ -59,10 +61,10 @@ LatentVector generateLatentVector(int sizeOfVector, int modValue, int numOfVecto
     rngPtr = &rngDataVector();
   }
   // auto &genDataVector = rngDataVector();
-  // std::mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
+  // mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
   for (int j = 0; j < numOfVectors; j++)
   {
-    std::vector<int> generatedVector;
+    vector<int> generatedVector;
     for (int i = 0; i < sizeOfVector; i++)
     {
       randomNum = dist(*rngPtr); // for now we using <random> library of c++ later move to  CSPRNG or other
@@ -75,16 +77,16 @@ LatentVector generateLatentVector(int sizeOfVector, int modValue, int numOfVecto
 
 LatentVectorShares generateVectorShares(LatentVector lVector, int modValue)
 {
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genDataVector = rngDataVector();
-  // std::mt19937_64 genDataVector(1234567);
+  // mt19937_64 genDataVector(1234567);
 
   LatentVectorShares lvShares;
 
   for (const auto &vec : lVector.lVector)
   {
-    std::vector<int> share0, share1;
-    for (std::size_t i = 0; i < vec.size(); i++) // do not use int i=0, will give error/warning
+    vector<int> share0, share1;
+    for (size_t i = 0; i < vec.size(); i++) // do not use int i=0, will give error/warning
     {
       int s0, s1;
       s0 = dist(genDataVector);
@@ -103,9 +105,9 @@ LatentVectorShares generateVectorShares(LatentVector lVector, int modValue)
 //   for generating and secret share of Beaver triplet
 ScalarandVectorTriplet generateScalarandVectorTriplet(int sizeOfVecor, int modValue)
 {
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
 
-  std::vector<int> A, C;
+  vector<int> A, C;
   int b;
 
   auto &genScalar = rngTripletScalar();
@@ -126,17 +128,17 @@ ScalarandVectorTriplet generateScalarandVectorTriplet(int sizeOfVecor, int modVa
 ScalarandVectorTripletShares sAndVectorTripletShares(ScalarandVectorTriplet sTriplet, int modValue)
 {
 
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genScalar = rngTripletScalar();
 
   ScalarandVectorTriplet t = sTriplet;
-  std::vector<int> A0, A1, C0, C1;
+  vector<int> A0, A1, C0, C1;
   int b0, b1;
   b0 = dist(genScalar);
   b1 = (t.bScalar - b0) % modValue;
   b1 = b1 < 0 ? b1 + modValue : b1;
 
-  for (std::size_t i = 0; i < t.A.size(); i++)
+  for (size_t i = 0; i < t.A.size(); i++)
   {
     int a0 = dist(genScalar);
     A0.push_back(a0);
@@ -157,16 +159,16 @@ VectorTriplet generateVectorTriplet(int sizeOfVector, int modValue)
 {
 
   if (sizeOfVector < 0)
-    throw std::invalid_argument("n < 0");
+    throw invalid_argument("n < 0");
   if (modValue <= 0)
-    throw std::invalid_argument("mod <= 0");
+    throw invalid_argument("mod <= 0");
 
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
-  std::vector<int> vectorA, vectorB;
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  vector<int> vectorA, vectorB;
   int random1, random2, scalarC = 0;
 
   auto &genTripletVector = rngTripletVector();
-  // std::mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
+  // mt19937_64 genDataVector(12345); // seed 12345 for reproducable result
 
   for (int i = 0; i < sizeOfVector; i++)
   {
@@ -184,18 +186,18 @@ VectorTriplet generateVectorTriplet(int sizeOfVector, int modValue)
 VectorTripletShares vTripletShares(VectorTriplet vTriplet, int modValue)
 {
 
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
 
   VectorTriplet t = vTriplet;
-  std::vector<int> vectorA0, vectorA1, vectorB0, vectorB1;
+  vector<int> vectorA0, vectorA1, vectorB0, vectorB1;
   int scalarC0, scalarC1;
   int shareA0, shareA1, shareB0, shareB1;
 
   auto &genTripletVector = rngTripletVector();
-  // std::mt19937_64 genDataVector(1234567);
+  // mt19937_64 genDataVector(1234567);
 
   // do not use int i=0, will give error/warning
-  for (std::size_t i = 0; i < t.vectorA.size(); i++)
+  for (size_t i = 0; i < t.vectorA.size(); i++)
   {
     shareA0 = dist(genTripletVector);
     shareA1 = (t.vectorA[i] - shareA0) % modValue;
@@ -218,9 +220,9 @@ VectorTripletShares vTripletShares(VectorTriplet vTriplet, int modValue)
       vectorA0, vectorA1, vectorB0, vectorB1, scalarC0, scalarC1};
 }
 
-std::pair<int, int> sharesOfOne(int modValue)
+pair<int, int> sharesOfOne(int modValue)
 {
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genTripletVector = rngTripletVector();
 
   int one0 = dist(genTripletVector);
@@ -231,14 +233,14 @@ std::pair<int, int> sharesOfOne(int modValue)
 }
 
 // standard vector shares
-StandardVectorShares sharesOfe(std::vector<int> e, int modValue)
+StandardVectorShares sharesOfe(vector<int> e, int modValue)
 {
 
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genTripletMatrix = rngTripletMatrix();
   StandardVectorShares eShares;
 
-  for (std::size_t i = 0; i < e.size(); i++) // size of e is n ( number of items or row in item matrix)
+  for (size_t i = 0; i < e.size(); i++) // size of e is n ( number of items or row in item matrix)
   {
     int num0, num1;
     num0 = dist(genTripletMatrix);
@@ -250,97 +252,100 @@ StandardVectorShares sharesOfe(std::vector<int> e, int modValue)
   return eShares;
 }
 
-// beaver triplet for vector and matrxi multiplication
+// beaver triplet for vector and matrix multiplication
 
-// struct MatrixVectorTriplet{
-//     std::vector<std::vector<int>>A; //  nxk
-//     std::vector<int>B;  // 1xn
-//     std::vector<int>C;   //1xk
+// struct MatrixVectorTriplet
+// {
+//     vector<vector<int>> BM; // nxk matrix
+//     vector<int> AV, CV;     // 1xn vector
+//                             // C :  1xk
 // };
+
 
 MatrixVectorTriplet generateMTriplet(int n, int k, int modValue)
 {
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genTripletMatrix = rngTripletMatrix();
 
-  std::vector<std::vector<int>> A; // nxk matrix
-  std::vector<int> B, C;           // B :[]1xn,  C: []1xk
+  vector<vector<int>> BM; // nxk matrix
+  vector<int> AV, CV;           // B :[]1xn,  C: []1xk
 
-  for (std::size_t i = 0; i < n; i++)
+  for (size_t i = 0; i < n; i++)
   {
-    std::vector<int> tempVec;
-    for (std::size_t j = 0; j < k; j++)
+    vector<int> tempVec;
+    for (size_t j = 0; j < k; j++)
     {
       int randomnum = dist(genTripletMatrix);
       tempVec.push_back(randomnum);
     }
-    A.push_back(tempVec);
+    BM.push_back(tempVec);
     int rand2 = dist(genTripletMatrix);
-    B.push_back(rand2);
+    AV.push_back(rand2);
   }
 
-  for (std::size_t j = 0; j < k; j++)
+  for (size_t j = 0; j < k; j++)
   {
     long long sum = 0;
-    for (std::size_t i = 0; i < n; i++)
+    for (size_t i = 0; i < n; i++)
     {
-      sum = (sum + ((int64_t)B[i] * A[i][j]) % modValue) % modValue;
+      sum = (sum + ((int64_t)AV[i] * BM[i][j]) % modValue) % modValue;
     }
-    C.push_back(sum);
+    CV.push_back(sum);
   }
 
-  return MatrixVectorTriplet{A, B, C};
+  return MatrixVectorTriplet{BM, AV, CV};
 }
 
-// struct MatrixVectorTripletShare{
-//     std::vector<std::vector<int>>AShare0,AShare1;
-//     std::vector<int>B0,B1;
-//     std::vector<int>C0,C1;
+// struct MatrixVectorTripletShare
+// {
+//     vector<vector<int>> BMShare0, BMShare1;
+//     vector<int> AVShare0, AVShare1;
+//     vector<int> CVShare0, CVShare1;
 // };
 
 MatrixVectorTripletShare genMShare(MatrixVectorTriplet mTriplet, int modValue)
 {
-  std::uniform_int_distribution<uint64_t> dist(0, modValue - 1);
+  uniform_int_distribution<uint64_t> dist(0, modValue - 1);
   auto &genTripletMatrix = rngTripletMatrix();
 
   MatrixVectorTripletShare shares;
-  std::size_t n = mTriplet.B.size();
-  std::size_t k = mTriplet.C.size();
+  size_t n = mTriplet.BM.size();
+  size_t k = mTriplet.CV.size();
 
-  for (std::size_t i = 0; i < n; i++)
+  //shares of BM []nxk
+  for (size_t i = 0; i < n; i++)
   {
-    std::vector<int> rowShare0, rowShare1;
-    for (std::size_t j = 0; j < k; j++)
+    vector<int> rowShare0, rowShare1;
+    for (size_t j = 0; j < k; j++)
     {
       int rand0 = dist(genTripletMatrix);
-      int rand1 = (mTriplet.A[i][j] - rand0) % modValue;
+      int rand1 = (mTriplet.BM[i][j] - rand0) % modValue;
       rand1 = rand1 < 0 ? rand1 + modValue : rand1;
       rowShare0.push_back(rand0);
       rowShare1.push_back(rand1);
     }
-    shares.AMShare0.push_back(rowShare0);
-    shares.AMShare1.push_back(rowShare1);
+    shares.BMShare0.push_back(rowShare0);
+    shares.BMShare1.push_back(rowShare1);
   }
 
-  // shares of B []1xn
-
-  for (std::size_t i = 0; i < n; i++)
+  // shares of AV []1xn
+  for (size_t i = 0; i < n; i++)
   {
     int rand0 = dist(genTripletMatrix);
-    int rand1 = (mTriplet.B[i] - rand0) % modValue;
+    int rand1 = (mTriplet.AV[i] - rand0) % modValue;
     rand1 = rand1 < 0 ? rand1 + modValue : rand1;
-    shares.BB0.push_back(rand0);
-    shares.B1.push_back(rand1);
+    shares.AVShare0.push_back(rand0);
+    shares.AVShare1.push_back(rand1);
   }
 
-  // shares of C []1xk
-  for (std::size_t i = 0; i < k; i++)
+  // shares of CV []1xk
+  for (size_t i = 0; i < k; i++)
   {
     int rand0 = dist(genTripletMatrix);
-    int rand1 = (mTriplet.C[i] - rand0) % modValue;
+    int rand1 = (mTriplet.CV[i] - rand0) % modValue;
     rand1 = rand1 < 0 ? rand1 + modValue : rand1;
-    shares.C0.push_back(rand0);
-    shares.C1.push_back(rand1);
+    shares.CVShare0.push_back(rand0);
+    shares.CVShare1.push_back(rand1);
   }
 
   return shares;

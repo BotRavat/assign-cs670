@@ -1,3 +1,4 @@
+
 #ifndef GEN_QUERIES_H
 #define GEN_QUERIES_H
 
