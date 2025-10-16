@@ -134,44 +134,50 @@ struct DpfKey
 vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size)
 {
     int height = (int)(ceil(log2(dpf_size)));
-    int leaves = dpf_size; // or 1 << (height);
+    int leaves = 1 << (height);
     int totalNodes = 2 * leaves - 1;
-    vector<u128> VShare(dpf_size);
+    int lastParentIdx = (totalNodes - 2) / 2;
+    vector<u128> VShare(totalNodes);
     VShare[0] = rootSeed;
     vector<u128> result(leaves);
 
     // generate tree using provided key {V,T,CW,dpf_size}
-    for (int l = 0; l < height - 1; l++)
+    for (int l = 0; l < height; l++)
     {
 
         int lvlStrt = (1 << l) - 1;
         int nodesAtLevel = 1 << l;
-
         int childLevel = l + 1;
-        int childStrt = (1 << childLevel) - 1;
 
         // generate childrens
         for (int i = 0; i < nodesAtLevel; i++)
         {
             int parentIdx = lvlStrt + i;
-            int leftChildIdx = childStrt + i;
-            int rightChildIdx = childStrt + i + 1;
-            pair<u128, u128> childSeed0 = prg2(VShare[lvlStrt + i]);
-            VShare[leftChildIdx] = childSeed0.first;   // left child
-            VShare[rightChildIdx] = childSeed0.second; // right child
+            int leftChildIdx = 2 * parentIdx + 1;
+            int rightChildIdx = 2 * parentIdx + 2;
+
+            pair<u128, u128> childSeed = prg2(VShare[parentIdx]);
+            VShare[leftChildIdx] = childSeed.first;   // left child
+            VShare[rightChildIdx] = childSeed.second; // right child
 
             // apply correction word to nodes
-
-            VShare[leftChildIdx] = VShare[leftChildIdx] ^ (T[parentIdx] & CW[childLevel]);
-            VShare[rightChildIdx] = VShare[rightChildIdx] ^ (T[parentIdx] & CW[childLevel]);
+            if (T[parentIdx])
+            {
+                VShare[leftChildIdx] ^= CW[childLevel];
+                VShare[rightChildIdx] ^= CW[childLevel];
+            }
         }
     }
 
-    int leafStart = leaves - 1;
-    for (int i = 0; i < leaves; i++)
+    // Apply final correction word to target leaf
+    int leafStart = (1 << (height)) - 1;
+    for (int i = 0; i < dpf_size; i++)
     {
-        result[i] = VShare[leafStart + i] ^ (T[leafStart + i] ? CW[height - 1] : 0);
-        // result[i] = VShare[leafStart + i];
+        result[i] = VShare[leafStart + i];
+        if (T[leafStart + i])
+        {
+            result[i] ^= CW[height + 1];
+        }
     }
 
     return result;
@@ -207,25 +213,22 @@ void EvalFull(DpfKey &dpf, int dpf_size)
         cout << " Test Passed";
     else
         cout << " Test Failed";
+    cout << endl;
 }
 
 //
 void generateDPF(DpfKey &dpf, int domainSize)
 {
-    uniform_int_distribution<int64_t> dist(std::numeric_limits<int64_t>::min(),
-                                           std::numeric_limits<int64_t>::max());
+    uniform_int_distribution<uint64_t> dist64(0, UINT64_MAX);
+
     auto &genShare = rngShare();
     int height = (int)(ceil(log2(domainSize)));
     int leaves = 1 << (height);
-    // int leaves = 1 << (height - 1);
     int totalNodes = 2 * leaves - 1;
-    // int totalNodes = dpf.V0.size();
     int lastParentIdx = (totalNodes - 2) / 2;
 
-    // u128 seed0 = dist(genShare);
-    // u128 seed1 = dist(genShare);
-    u128 seed0 = (static_cast<u128>(dist(genShare)) << 64) | static_cast<uint64_t>(dist(genShare));
-    u128 seed1 = (static_cast<u128>(dist(genShare)) << 64) | static_cast<uint64_t>(dist(genShare));
+    u128 seed0 = (static_cast<u128>(dist64(genShare)) << 64) | (dist64(genShare));
+    u128 seed1 = (static_cast<u128>(dist64(genShare)) << 64) | (dist64(genShare));
 
     seed0 &= ~(u128)1;
     seed1 |= 1;
@@ -233,12 +236,12 @@ void generateDPF(DpfKey &dpf, int domainSize)
     dpf.V0[0] = seed0;
     dpf.V1[0] = seed1;
 
-    // checking lsb bits
+    // // checking lsb bits
     // cout << "V0[0] LSB: ";
-    // print_uint128(dpf.V0[0]&1);
+    // print_uint128(dpf.V0[0] & 1);
     // cout << endl;
     // cout << "V1[0] LSB: ";
-    // print_uint128(dpf.V1[0]&1);
+    // print_uint128(dpf.V1[0] & 1);
     // cout << endl;
 
     // intial flags
@@ -246,44 +249,55 @@ void generateDPF(DpfKey &dpf, int domainSize)
     dpf.T1[0] = true;
 
     vector<int> binOfLocation = numToBinV(dpf.targetLocation, domainSize);
-    vector<u128> L0(height), R0(height), L1(height), R1(height);
-    vector<bool> cwtL(height), cwtR(height);
+    vector<u128> L0(height + 1), R0(height + 1), L1(height + 1), R1(height + 1);
+    vector<bool> cwtL(height + 1), cwtR(height + 1);
 
-    for (int l = 0; l < height - 1; l++)
+    for (int l = 0; l < height; l++)
     {
 
         int lvlStrt = (1 << l) - 1;
         int nodesAtLevel = 1 << l;
 
         int childLevel = l + 1;
-        int childStrt = (1 << childLevel) - 1;
 
         // generate childrens
+        cout << endl
+             << "level: " << l << " total Nodes at level: " << nodesAtLevel << endl;
         for (int i = 0; i < nodesAtLevel; i++)
         {
-            int leftChildIdx = childStrt + 2 * i;
-            int rightChildIdx = childStrt + 2 * i + 1;
-
-            //             // binary tree formula:
-            // int parentIdx = lvlStrt + i;
-            // int leftChildIdx = 2 * parentIdx + 1;
-            // int rightChildIdx = 2 * parentIdx + 2;
-            pair<u128, u128> childSeed0 = prg2(dpf.V0[lvlStrt + i]); // tree 0
-            pair<u128, u128> childSeed1 = prg2(dpf.V1[lvlStrt + i]); // for tree 1
-            dpf.V0[leftChildIdx] = childSeed0.first;                 // left child
-            dpf.V0[rightChildIdx] = childSeed0.second;               // right child
+            int parentIdx = lvlStrt + i;
+            int leftChildIdx = 2 * parentIdx + 1;
+            int rightChildIdx = 2 * parentIdx + 2;
+            pair<u128, u128> childSeed0 = prg2(dpf.V0[parentIdx]); // tree 0
+            pair<u128, u128> childSeed1 = prg2(dpf.V1[parentIdx]); // for tree 1
+            dpf.V0[leftChildIdx] = childSeed0.first;               // left child
+            dpf.V0[rightChildIdx] = childSeed0.second;             // right child
             dpf.V1[leftChildIdx] = childSeed1.first;
             dpf.V1[rightChildIdx] = childSeed1.second;
+
+            // cout << "Parent Node: ";
+            // print_uint128(dpf.V0[parentIdx]);
+            // cout << " first child: ";
+            // print_uint128(childSeed0.first);
+            // cout << " second child: ";
+            // print_uint128(childSeed0.second);
+            // cout << endl;
+            // cout << "Parent Node1: ";
+            // print_uint128(dpf.V1[parentIdx]);
+            // cout << " first child: ";
+            // print_uint128(childSeed1.first);
+            // cout << " second child: ";
+            // print_uint128(childSeed1.second);
+            // cout << endl;
         }
 
         // now we will compute Lb
         u128 l0 = 0, l1 = 0, r0 = 0, r1 = 0;
-
         for (int i = 0; i < nodesAtLevel; i++)
         {
             int parentIdx = lvlStrt + i;
-            int leftChildIdx = childStrt + 2 * i;
-            int rightChildIdx = childStrt + 2 * i + 1;
+            int leftChildIdx = 2 * parentIdx + 1;
+            int rightChildIdx = 2 * parentIdx + 2;
 
             l0 = l0 ^ dpf.V0[leftChildIdx];
             l1 = l1 ^ dpf.V1[leftChildIdx];
@@ -297,42 +311,46 @@ void generateDPF(DpfKey &dpf, int domainSize)
         R1[childLevel] = r1;
 
         // compute correction word
-        if (binOfLocation[childLevel] == 0)
-        {
-            dpf.CW[childLevel] = r0 ^ r1;
-        }
-        else
-        {
-            dpf.CW[childLevel] = l0 ^ l1;
-        }
-        // dpf.CW[childLevel] = ((binOfLocation[childLevel] * (l0 ^ l1)) ^ ((1 - binOfLocation[childLevel]) * (r0 ^ r1)));
+        // if (binOfLocation[l] == 0)
+        // {
+        //     dpf.CW[childLevel] = r0 ^ r1;
+        // }
+        // else
+        // {
+        //     dpf.CW[childLevel] = l0 ^ l1;
+        // }
+        dpf.CW[childLevel] = ((binOfLocation[l] * (l0 ^ l1)) ^ ((1 ^ binOfLocation[l]) * (r0 ^ r1)));
+
+        // if (binOfLocation[l] == 0)
+        // {
+        //     dpf.CW[childLevel] = r0 ^ r1; // correct non-target (right) aggregate
+        // }
+        // else
+        // {
+        //     dpf.CW[childLevel] = l0 ^ l1; // correct non-target (left) aggregate
+        // }
 
         // now we compute flag and flag correction
-
         // 4.) control bits for flag  or flag correction
         bool cwtl0, cwtr0, cwtl1, cwtr1;
 
-        // cwtl0 = (l0 & 1) ^ binOfLocation[childLevel];
-        // cwtl1 = (l1 & 1) ^ binOfLocation[childLevel];
-        // cwtL[childLevel] = cwtl0 ^ cwtl1 ^ 1;
-        // cwtR[childLevel] = cwtr0 ^ cwtr1;
         cwtl0 = l0 & 1;
         cwtr0 = r0 & 1;
         cwtl1 = l1 & 1;
         cwtr1 = r1 & 1;
 
         bool cwtl, cwtr;
-        cwtl = (cwtl0 ^ cwtl1 ^ binOfLocation[childLevel] ^ 1);
-        cwtr = (cwtr0 ^ cwtr1 ^ binOfLocation[childLevel]);
-        cwtL[childLevel] = cwtl;
-        cwtR[childLevel] = cwtr;
+        cwtl = (cwtl0 ^ cwtl1 ^ binOfLocation[l] ^ 1);
+        cwtr = (cwtr0 ^ cwtr1 ^ binOfLocation[l]);
+        // cwtL[childLevel] = cwtl;
+        // cwtR[childLevel] = cwtr;
 
         // 5.) compute child flags and apply flag correction and correction word
         for (int i = 0; i < nodesAtLevel; i++)
         {
             int parentIdx = lvlStrt + i;
-            int leftChildIdx = childStrt + 2 * i;
-            int rightChildIdx = childStrt + 2 * i + 1;
+            int leftChildIdx = 2 * parentIdx + 1;
+            int rightChildIdx = 2 * parentIdx + 2;
 
             // compute final flag bits for each node
             dpf.T0[leftChildIdx] = (dpf.V0[leftChildIdx] & 1) ^ (dpf.T0[parentIdx] & cwtl);
@@ -341,44 +359,79 @@ void generateDPF(DpfKey &dpf, int domainSize)
             dpf.T1[rightChildIdx] = (dpf.V1[rightChildIdx] & 1) ^ (dpf.T1[parentIdx] & cwtr);
 
             // apply correction word to nodes
+            cout << endl
+                 << "level is:" << l << " out of " << height;
 
-            dpf.V0[leftChildIdx] = dpf.V0[leftChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
-            dpf.V0[rightChildIdx] = dpf.V0[rightChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
-            dpf.V1[leftChildIdx] = dpf.V1[leftChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
-            dpf.V1[rightChildIdx] = dpf.V1[rightChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
+            if (dpf.T0[parentIdx])
+            {
+                dpf.V0[leftChildIdx] ^= dpf.CW[childLevel];
+                dpf.V0[rightChildIdx] ^= dpf.CW[childLevel];
+            }
+            if (dpf.T1[parentIdx])
+            {
+                dpf.V1[leftChildIdx] ^= dpf.CW[childLevel];
+                dpf.V1[rightChildIdx] ^= dpf.CW[childLevel];
+            }
+
+            // logical and (&)  only works for lsb
+            // dpf.V0[leftChildIdx] = dpf.V0[leftChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
+            // dpf.V0[rightChildIdx] = dpf.V0[rightChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
+            // dpf.V1[leftChildIdx] = dpf.V1[leftChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
+            // dpf.V1[rightChildIdx] = dpf.V1[rightChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
         }
     }
 
-    // final leaf-level correction word
-    int leafStart = leaves - 1;
-    // int leafStart = (1 << (height - 1)) - 1;
-    // u128 xorSum0 = 0, xorSum1 = 0;
-    // for (int i = 0; i < leaves; i++)
-    // {
-    //     xorSum0 ^= dpf.V0[leafStart + i];
-    //     xorSum1 ^= dpf.V1[leafStart + i];
-    // }
-    // u128 fCW = xorSum0 ^ xorSum1 ^ (u128)dpf.targetValue;
-    // dpf.CW.push_back(fCW);
+    int leafStart = (1 << (height)) - 1;
+    int targetLeaf = leafStart + dpf.targetLocation;
+    u128 fCW = (u128)dpf.targetValue ^ dpf.V0[targetLeaf] ^ dpf.V1[targetLeaf];
+    dpf.CW[height + 1] = fCW;
+    // Apply the final correction word only at the target leaf
+    if (dpf.T0[targetLeaf])
+        dpf.V0[targetLeaf] ^= dpf.CW[height + 1];
+    if (dpf.T1[targetLeaf])
+        dpf.V1[targetLeaf] ^= dpf.CW[height + 1];
 
-    // cout << "Final Correction Word (leaf-level): ";
-    // print_uint128(fCW);
-    // cout << endl;
+    // dpf.V0[targetLeaf] = dpf.V0[targetLeaf] ^ (dpf.T0[targetLeaf] & dpf.CW[height + 1]);
+    // dpf.V1[targetLeaf] = dpf.V1[targetLeaf] ^ (dpf.T1[targetLeaf] & dpf.CW[height + 1]);
 
+    // === print leaf nodes ===
     int targetLeafIdx = leafStart + dpf.targetLocation;
     u128 leaf0 = dpf.V0[targetLeafIdx];
     u128 leaf1 = dpf.V1[targetLeafIdx];
-    u128 fCW = (u128)dpf.targetValue ^ leaf0 ^ leaf1;
-    dpf.CW[height - 1] = fCW;
+    cout << "\n=== Final DPF Check ===" << endl;
+    cout << "Target Index: " << dpf.targetLocation << endl;
+    cout << "Target Value: " << dpf.targetValue << endl;
 
-    // to check tree
-    // for (int i = 0; i < min(8, (int)dpf.V0.size()); i++) // print first 8 nodes
-    // {
-    //     cout << "Node " << i
-    //          << " V0: " << (uint64_t)(dpf.V0[i] >> 64) << " " << (uint64_t)(dpf.V0[i] & 0xFFFFFFFFFFFFFFFFULL)
-    //          << " | V1: " << (uint64_t)(dpf.V1[i] >> 64) << " " << (uint64_t)(dpf.V1[i] & 0xFFFFFFFFFFFFFFFFULL)
-    //          << endl;
-    // }
+    cout << "\nParty 0 (V0) leaf values:\n";
+    for (int i = leafStart; i < leafStart + leaves; i++)
+    {
+        cout << "  Leaf " << i - leafStart << ": ";
+        print_uint128(dpf.V0[i]);
+        cout << endl;
+    }
+
+    cout << "\nParty 1 (V1) leaf values:\n";
+    for (int i = leafStart; i < leafStart + leaves; i++)
+    {
+        cout << "  Leaf " << i - leafStart << ": ";
+        print_uint128(dpf.V1[i]);
+        cout << endl;
+    }
+
+    cout << "\nFinal correction word fCW: ";
+    print_uint128(fCW);
+    cout << endl;
+
+    cout << "\nTarget leaf XOR check:\n";
+    cout << "  V0[target] = ";
+    print_uint128(leaf0);
+    cout << "\n  V1[target] = ";
+    print_uint128(leaf1);
+    cout << "\n  XOR result = ";
+    print_uint128(leaf0 ^ leaf1);
+    cout << "\n  Expected   = ";
+    print_uint128((u128)dpf.targetValue);
+    cout << endl;
 }
 
 int main()
@@ -395,6 +448,7 @@ int main()
     auto &genValue = rngValue();
 
     int totalNodes = 2 * dpf_size - 1;
+    cout << "Total nodes: " << totalNodes << endl;
     for (int i = 0; i < num_dpfs; i++)
     {
         DpfKey dpf;
@@ -410,7 +464,7 @@ int main()
         dpf.T0.resize(totalNodes, false);
         dpf.T1.resize(totalNodes, false);
         int height = (int)(ceil(log2(dpf_size)));
-        dpf.CW.resize(height, (u128)0);
+        dpf.CW.resize(height + 2, (u128)0);
         cout << "height is :" << height << endl;
         cout << "Target Index: " << location << " Target Value: " << value << endl;
         generateDPF(dpf, dpf_size);
