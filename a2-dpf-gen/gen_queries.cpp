@@ -12,29 +12,31 @@ using u128 = unsigned __int128;
  random_device rd;                      // non-deterministic generator
  mt19937 gen(rd());                     // to seed mersenne twister.
  uniform_int_distribution<> dist(1, 6); // distribute results between 1 and 6 inclusive.
- uniform_int_distribution<> dist(std::numeric_limits<int64_t>::min(),std::numeric_limits<int64_t>::max()) // covers negative and positive numbers
-
  for (int i = 0; i < 5; ++i)
  {
      cout << dist(gen) << " "; // pass the generator to the distribution.
  }
 **/
 
+random_device rd;
+
+// only one can be used here but for result reproducability we can give choosen seed in place of rd()
 namespace
 {
-    mt19937_64 &rngLocation() // on every call of distributor it will generate next set of values thats why for generate and and generateShare will generate different numbers
+    mt19937_64 &rngLocation()
     {
-        static mt19937_64 genLocation(12345); // seed 12345 for reproducable result, will use above (random_device rd) later
+
+        static mt19937_64 genLocation(rd());
         return genLocation;
     }
     mt19937_64 &rngValue()
     {
-        static mt19937_64 genValue(24135);
+        static mt19937_64 genValue(rd());
         return genValue;
     }
     mt19937_64 &rngShare()
     {
-        static mt19937_64 genShare(65754);
+        static mt19937_64 genShare(rd());
         return genShare;
     }
 }
@@ -58,6 +60,16 @@ void print_uint128(u128 value)
     cout << (uint64_t)(value & 0xFFFFFFFFFFFFFFFFULL); // then lower 64 bits
 }
 
+void print_target_value(u128 value)
+{
+    print_uint128(value);
+    if (value <= (u128)std::numeric_limits<int64_t>::max())
+        cout << " (signed: " << (int64_t)value << ")";
+    else
+        cout << " (signed: " << (int64_t)(value - (u128(1) << 64)) << ")";
+}
+
+// gives binary vector of a number
 vector<int> numToBinV(uint64_t num, uint64_t domainSize)
 {
     int height = static_cast<int>(ceil(log2(domainSize)));
@@ -72,19 +84,13 @@ vector<int> numToBinV(uint64_t num, uint64_t domainSize)
     return bits;
 }
 
-// helper to get level number
-int getLevel(int nodeIndex)
-{
-    // return (int)floor(log2(nodeIndex + 1));
-    return 31 - __builtin_clz(nodeIndex + 1);
-}
-
 void handleErrors()
 {
     ERR_print_errors_fp(stderr);
     abort();
 }
 
+// PRG : gives output 2 child seeds for a single parent seed
 pair<u128, u128> prg2(u128 parentSeed)
 {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -128,7 +134,7 @@ struct DpfKey
     int targetLocation, targetValue;
     vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
     vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
-    vector<u128> CW;     // vector containing correction word per level, size= height of tree
+    vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
 };
 
 vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size)
@@ -183,7 +189,7 @@ vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_s
     return result;
 }
 
-void EvalFull(DpfKey &dpf, int dpf_size)
+void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
 {
     int targetLocation = dpf.targetLocation, targetValue = dpf.targetValue;
     vector<u128> V0 = dpf.V0, V1 = dpf.V1;
@@ -195,20 +201,28 @@ void EvalFull(DpfKey &dpf, int dpf_size)
     eval1 = evalDPF(V1[0], T1, CW, dpf_size);
 
     u128 valueAtTarget;
+    if (dpf_size < 16 && totaldpfs < 3)
+        cout << "==== Eval full check ===";
+
     for (int i = 0; i < dpf_size; i++)
     {
         u128 evalFull = eval0[i] ^ eval1[i];
-        cout << endl
-             << "For index " << i << " : ";
-        print_uint128(eval0[i]);
-        cout << " XOR ";
-        print_uint128(eval1[i]);
-        cout << " = ";
-        print_uint128(evalFull);
+        if (dpf_size < 16 && totaldpfs < 3)
+        {
+            // Please remove if condition to check full long results
+            cout << endl
+                 << "For index " << i << " : ";
+            print_uint128(eval0[i]);
+            cout << " XOR ";
+            print_uint128(eval1[i]);
+            cout << " = ";
+            print_target_value(evalFull);
+        }
         if (i == dpf.targetLocation)
             valueAtTarget = evalFull;
     }
-    cout << endl;
+    if (dpf_size < 16 && totaldpfs < 3)
+        cout << endl;
     if (valueAtTarget == dpf.targetValue)
         cout << " Test Passed";
     else
@@ -236,21 +250,12 @@ void generateDPF(DpfKey &dpf, int domainSize)
     dpf.V0[0] = seed0;
     dpf.V1[0] = seed1;
 
-    // // checking lsb bits
-    // cout << "V0[0] LSB: ";
-    // print_uint128(dpf.V0[0] & 1);
-    // cout << endl;
-    // cout << "V1[0] LSB: ";
-    // print_uint128(dpf.V1[0] & 1);
-    // cout << endl;
-
     // intial flags
     dpf.T0[0] = false;
     dpf.T1[0] = true;
 
     vector<int> binOfLocation = numToBinV(dpf.targetLocation, domainSize);
     vector<u128> L0(height + 1), R0(height + 1), L1(height + 1), R1(height + 1);
-    vector<bool> cwtL(height + 1), cwtR(height + 1);
 
     for (int l = 0; l < height; l++)
     {
@@ -261,8 +266,6 @@ void generateDPF(DpfKey &dpf, int domainSize)
         int childLevel = l + 1;
 
         // generate childrens
-        cout << endl
-             << "level: " << l << " total Nodes at level: " << nodesAtLevel << endl;
         for (int i = 0; i < nodesAtLevel; i++)
         {
             int parentIdx = lvlStrt + i;
@@ -274,24 +277,9 @@ void generateDPF(DpfKey &dpf, int domainSize)
             dpf.V0[rightChildIdx] = childSeed0.second;             // right child
             dpf.V1[leftChildIdx] = childSeed1.first;
             dpf.V1[rightChildIdx] = childSeed1.second;
-
-            // cout << "Parent Node: ";
-            // print_uint128(dpf.V0[parentIdx]);
-            // cout << " first child: ";
-            // print_uint128(childSeed0.first);
-            // cout << " second child: ";
-            // print_uint128(childSeed0.second);
-            // cout << endl;
-            // cout << "Parent Node1: ";
-            // print_uint128(dpf.V1[parentIdx]);
-            // cout << " first child: ";
-            // print_uint128(childSeed1.first);
-            // cout << " second child: ";
-            // print_uint128(childSeed1.second);
-            // cout << endl;
         }
 
-        // now we will compute Lb
+        // now we will compute Lb and Rb (xor of all left and right child of level)
         u128 l0 = 0, l1 = 0, r0 = 0, r1 = 0;
         for (int i = 0; i < nodesAtLevel; i++)
         {
@@ -311,27 +299,10 @@ void generateDPF(DpfKey &dpf, int domainSize)
         R1[childLevel] = r1;
 
         // compute correction word
-        // if (binOfLocation[l] == 0)
-        // {
-        //     dpf.CW[childLevel] = r0 ^ r1;
-        // }
-        // else
-        // {
-        //     dpf.CW[childLevel] = l0 ^ l1;
-        // }
         dpf.CW[childLevel] = ((binOfLocation[l] * (l0 ^ l1)) ^ ((1 ^ binOfLocation[l]) * (r0 ^ r1)));
 
-        // if (binOfLocation[l] == 0)
-        // {
-        //     dpf.CW[childLevel] = r0 ^ r1; // correct non-target (right) aggregate
-        // }
-        // else
-        // {
-        //     dpf.CW[childLevel] = l0 ^ l1; // correct non-target (left) aggregate
-        // }
-
         // now we compute flag and flag correction
-        // 4.) control bits for flag  or flag correction
+        // control bits for flag  or flag correction
         bool cwtl0, cwtr0, cwtl1, cwtr1;
 
         cwtl0 = l0 & 1;
@@ -342,10 +313,8 @@ void generateDPF(DpfKey &dpf, int domainSize)
         bool cwtl, cwtr;
         cwtl = (cwtl0 ^ cwtl1 ^ binOfLocation[l] ^ 1);
         cwtr = (cwtr0 ^ cwtr1 ^ binOfLocation[l]);
-        // cwtL[childLevel] = cwtl;
-        // cwtR[childLevel] = cwtr;
 
-        // 5.) compute child flags and apply flag correction and correction word
+        // compute child flags and apply flag correction and correction word
         for (int i = 0; i < nodesAtLevel; i++)
         {
             int parentIdx = lvlStrt + i;
@@ -359,9 +328,6 @@ void generateDPF(DpfKey &dpf, int domainSize)
             dpf.T1[rightChildIdx] = (dpf.V1[rightChildIdx] & 1) ^ (dpf.T1[parentIdx] & cwtr);
 
             // apply correction word to nodes
-            cout << endl
-                 << "level is:" << l << " out of " << height;
-
             if (dpf.T0[parentIdx])
             {
                 dpf.V0[leftChildIdx] ^= dpf.CW[childLevel];
@@ -372,12 +338,6 @@ void generateDPF(DpfKey &dpf, int domainSize)
                 dpf.V1[leftChildIdx] ^= dpf.CW[childLevel];
                 dpf.V1[rightChildIdx] ^= dpf.CW[childLevel];
             }
-
-            // logical and (&)  only works for lsb
-            // dpf.V0[leftChildIdx] = dpf.V0[leftChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
-            // dpf.V0[rightChildIdx] = dpf.V0[rightChildIdx] ^ (dpf.T0[parentIdx] & dpf.CW[childLevel]);
-            // dpf.V1[leftChildIdx] = dpf.V1[leftChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
-            // dpf.V1[rightChildIdx] = dpf.V1[rightChildIdx] ^ (dpf.T1[parentIdx] & dpf.CW[childLevel]);
         }
     }
 
@@ -385,44 +345,43 @@ void generateDPF(DpfKey &dpf, int domainSize)
     int targetLeaf = leafStart + dpf.targetLocation;
     u128 fCW = (u128)dpf.targetValue ^ dpf.V0[targetLeaf] ^ dpf.V1[targetLeaf];
     dpf.CW[height + 1] = fCW;
-    // Apply the final correction word only at the target leaf
+    // Apply the final correction word only at the target leaf ( can also apply to all leafes based on their flag bits)
     if (dpf.T0[targetLeaf])
         dpf.V0[targetLeaf] ^= dpf.CW[height + 1];
     if (dpf.T1[targetLeaf])
         dpf.V1[targetLeaf] ^= dpf.CW[height + 1];
 
-    // dpf.V0[targetLeaf] = dpf.V0[targetLeaf] ^ (dpf.T0[targetLeaf] & dpf.CW[height + 1]);
-    // dpf.V1[targetLeaf] = dpf.V1[targetLeaf] ^ (dpf.T1[targetLeaf] & dpf.CW[height + 1]);
-
-    // === print leaf nodes ===
-    int targetLeafIdx = leafStart + dpf.targetLocation;
-    u128 leaf0 = dpf.V0[targetLeafIdx];
-    u128 leaf1 = dpf.V1[targetLeafIdx];
-    cout << "\n=== Final DPF Check ===" << endl;
     cout << "Target Index: " << dpf.targetLocation << endl;
     cout << "Target Value: " << dpf.targetValue << endl;
 
-    cout << "\nParty 0 (V0) leaf values:\n";
-    for (int i = leafStart; i < leafStart + leaves; i++)
-    {
-        cout << "  Leaf " << i - leafStart << ": ";
-        print_uint128(dpf.V0[i]);
-        cout << endl;
-    }
+    //  print leaf nodes
+    int targetLeafIdx = leafStart + dpf.targetLocation;
+    u128 leaf0 = dpf.V0[targetLeafIdx];
+    u128 leaf1 = dpf.V1[targetLeafIdx];
+    // Please uncomment below code to cross check dpf constructed
+    /*
+       cout << "\n=== Final DPF Check ===" << endl;
+       cout << "\nParty 0 (V0) leaf values:\n";
+       for (int i = leafStart; i < leafStart + leaves; i++)
+       {
+           cout << "  Leaf " << i - leafStart << ": ";
+           print_uint128(dpf.V0[i]);
+           cout << endl;
+       }
 
-    cout << "\nParty 1 (V1) leaf values:\n";
-    for (int i = leafStart; i < leafStart + leaves; i++)
-    {
-        cout << "  Leaf " << i - leafStart << ": ";
-        print_uint128(dpf.V1[i]);
-        cout << endl;
-    }
-
-    cout << "\nFinal correction word fCW: ";
-    print_uint128(fCW);
-    cout << endl;
-
-    cout << "\nTarget leaf XOR check:\n";
+       cout << "\nParty 1 (V1) leaf values:\n";
+       for (int i = leafStart; i < leafStart + leaves; i++)
+       {
+           cout << "  Leaf " << i - leafStart << ": ";
+           print_uint128(dpf.V1[i]);
+           cout << endl;
+       }
+       cout << "\nFinal correction word fCW: ";
+       print_uint128(fCW);
+       cout << endl;
+       */
+    cout << " DPFs, generated \n";
+    cout << "Target leaf XOR check:\n";
     cout << "  V0[target] = ";
     print_uint128(leaf0);
     cout << "\n  V1[target] = ";
@@ -430,7 +389,7 @@ void generateDPF(DpfKey &dpf, int domainSize)
     cout << "\n  XOR result = ";
     print_uint128(leaf0 ^ leaf1);
     cout << "\n  Expected   = ";
-    print_uint128((u128)dpf.targetValue);
+    print_target_value(dpf.targetValue);
     cout << endl;
 }
 
@@ -438,9 +397,15 @@ int main()
 {
 
     int dpf_size, num_dpfs;
-    cout << "Enter DPF size and number of dpfs: ";
+    cout << "Enter DPF size (e.g 2, 4, 8...) and number of dpfs: ";
     cin >> dpf_size >> num_dpfs;
 
+    while (dpf_size % 2 != 0 || dpf_size <= 0)
+    {
+        cout << "Please enter dpf size in multiple of 2 and at least 2 try again:" << endl;
+        cout << "Enter DPF size (e.g 2, 4, 8...) again: ";
+        cin >> dpf_size;
+    }
     uniform_int_distribution<uint64_t> dist(0, dpf_size - 1);
     uniform_int_distribution<int64_t> dist2(std::numeric_limits<int64_t>::min(),
                                             std::numeric_limits<int64_t>::max());
@@ -449,8 +414,11 @@ int main()
 
     int totalNodes = 2 * dpf_size - 1;
     cout << "Total nodes: " << totalNodes << endl;
+    cout << "Total dpfs: " << num_dpfs << endl;
     for (int i = 0; i < num_dpfs; i++)
     {
+        cout << endl
+             << "For dpf " << i + 1 << " :" << endl;
         DpfKey dpf;
         int location;
         int64_t value;
@@ -465,12 +433,16 @@ int main()
         dpf.T1.resize(totalNodes, false);
         int height = (int)(ceil(log2(dpf_size)));
         dpf.CW.resize(height + 2, (u128)0);
-        cout << "height is :" << height << endl;
-        cout << "Target Index: " << location << " Target Value: " << value << endl;
+        cout << "height :" << height << endl;
         generateDPF(dpf, dpf_size);
-        cout << " DPFs, generated \n";
-        EvalFull(dpf, dpf_size);
+        EvalFull(dpf, dpf_size, num_dpfs);
     }
 
     return 0;
+
+    /*
+    run below 2 commands to execute the code
+    g++ gen_queries.cpp -o a -lssl -lcrypto
+    ./a
+    */
 }
