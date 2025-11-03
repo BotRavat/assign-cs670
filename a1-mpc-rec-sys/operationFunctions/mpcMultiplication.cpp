@@ -7,8 +7,8 @@ vector<int> mpcVectorandMatrixMul(
     vector<int> alphaV,        // 1xn
     vector<vector<int>> V,     // nxk
     vector<vector<int>> betaM, // nxk
-    vector<int>AVShare0,
-    vector<int> C,             // 1xk
+    vector<int> AVShare0,
+    vector<int> C, // 1xk
     int modValue)
 {
     vector<int> z;
@@ -18,18 +18,34 @@ vector<int> mpcVectorandMatrixMul(
         int mul1 = 0, mul2 = 0;
         for (size_t row = 0; row < alphaV.size(); row++)
         {
-            mul1 = (mul1+(int64_t)(alphaV[row] *V[row][col]))%modValue;
-            mul2= (mul2+(int64_t)(AVShare0[row] *betaM[row][col]))%modValue;
+            mul1 = (mul1 + (int64_t)(alphaV[row] * V[row][col])) % modValue;
+            mul2 = (mul2 + (int64_t)(AVShare0[row] * betaM[row][col])) % modValue;
         }
-        int res=(mul1-mul2+C[col])%modValue;
-        res=res<0?res+modValue:res;
+        int res = (mul1 - mul2 + C[col]) % modValue;
+        res = res < 0 ? res + modValue : res;
         z.push_back(res);
     }
 
     return z;
 }
 
-//  in this create AShare triplet ,  vector AShare, vector BShare, and CShare=<AShare,BShare>
+int mpcDotProduct( // dot product always result to scalar
+    vector<int> alpha,
+    vector<int> BShare,
+    vector<int> beta,
+    vector<int> AShare,
+    int CShare, int modValue = 64)
+{
+    int mul1 = 0, mul2 = 0, ZShare;
+    for (size_t i = 0; i < alpha.size(); i++)
+    {
+        mul1 = (mul1 + ((int64_t)alpha[i] * BShare[i]) % modValue) % modValue;
+        mul2 = (mul2 + ((int64_t)beta[i] * AShare[i]) % modValue) % modValue;
+    }
+    ZShare = (mul1 - mul2 + CShare) % modValue;
+    ZShare = ZShare < 0 ? ZShare + modValue : ZShare;
+    return ZShare;
+}
 
 // Vector AShare (same size as the vector)
 // Scalar BShare
@@ -40,7 +56,6 @@ vector<int> mpcVectorandScalarMul(
     int beta,
     vector<int> AShare,
     vector<int> CShare,
-    int party,
     int modValue = 64)
 {
 
@@ -50,48 +65,12 @@ vector<int> mpcVectorandScalarMul(
         int intmVal = 0, mul1 = 0, mul2 = 0;
         mul1 = ((int64_t)alpha[i] * bShare) % modValue;
         mul2 = ((int64_t)beta * AShare[i]) % modValue;
-        if (party == 0)
         {
-            int alpha_beta_term = ((int64_t)alpha[i] * beta) % modValue;
-            intmVal = (alpha_beta_term - mul1 - mul2 + CShare[i]) % modValue;
-        }
-        else
-        {
-            intmVal = (0 - mul1 - mul2 + CShare[i]) % modValue;
-        }
-        intmVal = intmVal < 0 ? intmVal + modValue : intmVal;
-        ZShare.push_back(intmVal);
-    }
-    return ZShare;
-}
+            intmVal = (mul1 - mul2 + CShare[i]) % modValue;
 
-int mpcDotProduct( // dot product always result to scalar
-    vector<int> alpha,
-    vector<int> BShare,
-    vector<int> beta,
-    vector<int> AShare,
-    int CShare, int party, int modValue = 64)
-{
-    int mul1 = 0, mul2 = 0, ZShare;
-    for (size_t i = 0; i < alpha.size(); i++)
-    {
-        mul1 = (mul1 + ((int64_t)alpha[i] * BShare[i]) % modValue) % modValue;
-        mul2 = (mul2 + ((int64_t)beta[i] * AShare[i]) % modValue) % modValue;
-    }
-    if (party == 0)
-    {
-        int alpha_beta = 0;
-        for (size_t i = 0; i < alpha.size(); i++)
-        {
-            alpha_beta = (alpha_beta + ((int64_t)alpha[i] * beta[i]) % modValue) % modValue;
+            intmVal = intmVal < 0 ? intmVal + modValue : intmVal;
+            ZShare.push_back(intmVal);
         }
-        ZShare = (alpha_beta - mul1 - mul2 + CShare) % modValue;
     }
-    else
-    {
-        ZShare = (0 - mul1 - mul2 + CShare) % modValue;
-    }
-    // ZShare = (mul1 - mul2 + CShare) % modValue;
-    ZShare = ZShare < 0 ? ZShare + modValue : ZShare;
     return ZShare;
 }

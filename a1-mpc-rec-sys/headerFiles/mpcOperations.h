@@ -23,14 +23,14 @@ vector<int> mpcVectorandScalarMul(
     int bShare,
     int beta,
     vector<int> AShare,
-    vector<int> CShare, int party,
+    vector<int> CShare,
     int modValue);
 
 int mpcDotProduct(vector<int> alpha,
                   vector<int> b,
                   vector<int> beta,
                   vector<int> a,
-                  int c, int party, int modValue);
+                  int c, int modValue);
 
 
 #endif

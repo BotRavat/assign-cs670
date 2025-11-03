@@ -17,21 +17,10 @@ awaitable<void> receiveSharesFromDealer(
     int &n, int &k, int &modValue,
     vector<int> &AVShare0, vector<vector<int>> &BMShare0, vector<int> &CVShare0,
     vector<int> &vectorA0, vector<int> &vectorB0, int &scalarC0,
-    vector<int> &AShare0, int &bShare0, vector<int> CShare0,
+    vector<int> &AShare0, int &bShare0, vector<int>& CShare0,
     vector<int> &eShare0,
     int &one0, int &query_i)
 {
-
-    AVShare0.resize(n);
-    BMShare0.resize(n, vector<int>(k));
-
-    vectorA0.resize(k);
-    vectorB0.resize(k);
-
-    AShare0.resize(k);
-    CShare0.resize(k);
-
-    eShare0.resize(n);
 
     co_await recv_int(socket, n);
     cout << "Party0: received n = " << n << "\n"
@@ -45,11 +34,22 @@ awaitable<void> receiveSharesFromDealer(
     cout << "Party0: received modValue = " << modValue << "\n"
          << flush;
 
+    AVShare0.resize(n);
+    BMShare0.resize(n, vector<int>(k));
+
+    vectorA0.resize(k);
+    vectorB0.resize(k);
+
+    AShare0.resize(k);
+    CShare0.resize(k);
+
+    eShare0.resize(n);
+
     // matrix-vector triplet
     co_await recvVector(socket, AVShare0);
     co_await recvMatrix(socket, BMShare0);
-    co_await recvVector(socket, CShare0);
-    cout << "Party0: received C0 size = " << CShare0.size() << "\n"
+    co_await recvVector(socket, CVShare0);
+    cout << "Party0: received C0 size = " << CVShare0.size() << "\n"
          << flush;
 
     // vector dot product triplet
@@ -252,15 +252,13 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         // get beavers triplet for vectors from dealer
         // vectorA0,vectorB0,scalarC0
 
-        // sent blinded value to party S1
+        // blinded value by party S1
         // UA0=U0[i]+A0, VB0=V0[i]+B0   // vector addition
-
-        
         vector<int> UA0(k), VB0(k);
         for (size_t it = 0; it < k; it++)
         {
-            UA0[it] = (U0i[it] + A10[it]) % modValue;
-            VB0[it] = (V0j[it] + B10[it]) % modValue;
+            UA0[it] = (U0i[it] + vectorA0[it]) % modValue;
+            VB0[it] = (V0j[it] + vectorB0[it]) % modValue;
         }
 
         // get blinded values from party S1
@@ -281,7 +279,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         }
 
         // compute share of mpc dot product of <ui,vi>
-        int UdotV0 = mpcDotProduct(alpha, B10, beta, A10, c0, 0, modValue);
+        int UdotV0 = mpcDotProduct(alpha, vectorB0, beta, vectorA0, scalarC0, modValue);
 
         // compute share of 1-<ui,vj>
         int sub0 = (one0 - UdotV0) % modValue;
@@ -319,11 +317,10 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         betaS = (blind_scalar0 + blind_scalar1) % modValue;
         vector<int> mul0 = mpcVectorandScalarMul(
             alphaSV,
-            bShare0,
+            sub0,
             betaS,
             AShare0,
             CShare0,
-            0,
             modValue);
 
         // now calculate ui=ui+vj(1-<ui,vj>)

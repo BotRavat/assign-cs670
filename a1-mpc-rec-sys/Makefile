@@ -4,10 +4,10 @@ CXXFLAGS = -std=c++20 -O2 -I./headerFiles -I./generatorFunctions -I./operationFu
 LDFLAGS = -lboost_system -lpthread
 
 # Source files
-GENERATE_SRC = generatorFunctions/saveToFile.cpp generatorFunctions/gen_queries.cpp operationFunctions/mpcDotProduct.cpp
-DEALER_SRC = dealer/dealer.cpp operationFunctions/mpcDotProduct.cpp generatorFunctions/gen_queries.cpp
-PARTY0_SRC = parties/party0.cpp operationFunctions/mpcDotProduct.cpp generatorFunctions/gen_queries.cpp
-PARTY1_SRC = parties/party1.cpp operationFunctions/mpcDotProduct.cpp generatorFunctions/gen_queries.cpp
+GENERATE_SRC = generatorFunctions/saveToFile.cpp generatorFunctions/gen_queries.cpp operationFunctions/mpcMultiplication.cpp
+DEALER_SRC = dealer/dealer.cpp operationFunctions/mpcMultiplication.cpp generatorFunctions/gen_queries.cpp
+PARTY0_SRC = parties/party0.cpp operationFunctions/mpcMultiplication.cpp generatorFunctions/gen_queries.cpp
+PARTY1_SRC = parties/party1.cpp operationFunctions/mpcMultiplication.cpp generatorFunctions/gen_queries.cpp
 
 # Default values (can be overridden)
 USERS ?= 3

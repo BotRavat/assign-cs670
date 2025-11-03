@@ -47,22 +47,25 @@ awaitable<void> send_shares_to_party(
         co_await send_int(socket, k, "k");
         co_await send_int(socket, modValue, "modValue");
 
+        //matrix triplet
         co_await sendVector(socket, AV);
         co_await sendMatrix(socket, BM);
         co_await sendVector(socket, CV);
 
+        //vector triplet
         co_await sendVector(socket, vectorA);
         co_await sendVector(socket, vectorB);
         co_await send_int(socket, scalarC, "scalarC");
-
+       
+        //scalar and vector triplet
         co_await sendVector(socket, AShare);
         co_await send_int(socket, b, "b");
         co_await sendVector(socket, CShare);
 
-
+        // e share triplet
         co_await sendVector(socket, eshare);
 
-
+        // share of one
         co_await send_int(socket, oneShare, "oneShare");
         co_await send_int(socket, query_i, "query_i");
 
@@ -227,10 +230,10 @@ int main(int argc, char *argv[])
 
         cout << "loading matrix \n";
 
-        vector<vector<int>> U0 = loadMatrix("data/U_ShareMatrix0.txt");
-        vector<vector<int>> U1 = loadMatrix("data/U_ShareMatrix1.txt");
-        vector<vector<int>> V0 = loadMatrix("data/V_ShareMatrix0.txt");
-        vector<vector<int>> V1 = loadMatrix("data/V_ShareMatrix1.txt");
+        vector<vector<int>> U0 = loadMatrix("U_ShareMatrix0.txt");
+        vector<vector<int>> U1 = loadMatrix("U_ShareMatrix1.txt");
+        vector<vector<int>> V0 = loadMatrix("V_ShareMatrix0.txt");
+        vector<vector<int>> V1 = loadMatrix("V_ShareMatrix1.txt");
 
         if (U0.empty() || U1.empty() || V0.empty() || V1.empty())
         {

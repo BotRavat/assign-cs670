@@ -70,6 +70,7 @@ int main(int argc, char *argv[])
     LatentVectorShares VShares = generateVectorShares(V, modValue);
 
    
+    saveMatrix(UShares.lvShare0, "U_ShareMatrix0.txt");
     saveMatrix(UShares.lvShare1, "U_ShareMatrix1.txt");
     saveMatrix(VShares.lvShare0, "V_ShareMatrix0.txt");
     saveMatrix(VShares.lvShare1, "V_ShareMatrix1.txt");
