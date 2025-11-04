@@ -191,29 +191,6 @@ awaitable<void> sendAndRcvFromParties(
     // co_return;
 }
 
-vector<vector<int>> loadMatrix(const string &filename)
-{
-    ifstream inFile(filename);
-    if (!inFile)
-    {
-        cerr << "Error opening file: " << filename << "\n";
-        return {};
-    }
-
-    vector<vector<int>> matrix;
-    string line;
-    while (getline(inFile, line))
-    {
-        stringstream ss(line);
-        vector<int> row;
-        int val;
-        while (ss >> val)
-            row.push_back(val);
-        if (!row.empty())
-            matrix.push_back(row);
-    }
-    return matrix;
-}
 
 int main(int argc, char *argv[])
 {

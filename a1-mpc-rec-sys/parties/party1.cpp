@@ -92,57 +92,6 @@ awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<int> &
     co_return;
 }
 
-vector<vector<int>> loadMatrix(const string &filename)
-{
-    ifstream inFile(filename);
-    if (!inFile)
-    {
-        cerr << "Error opening file for reading: " << filename << endl;
-        return {};
-    }
-
-    vector<vector<int>> matrix;
-    string line;
-
-    while (getline(inFile, line))
-    {
-        stringstream ss(line);
-        int val;
-        vector<int> row;
-        while (ss >> val)
-        {
-            row.push_back(val);
-        }
-        if (!row.empty())
-            matrix.push_back(row);
-    }
-
-    inFile.close();
-    return matrix;
-}
-void saveMatrix(const string &filename, const vector<vector<int>> &matrix)
-{
-    ofstream outFile(filename);
-    if (!outFile)
-    {
-        cerr << "Error opening file for writing: " << filename << endl;
-        return;
-    }
-
-    for (const auto &row : matrix)
-    {
-        for (size_t i = 0; i < row.size(); ++i)
-        {
-            outFile << row[i];
-            if (i != row.size() - 1)
-                outFile << " ";
-        }
-        outFile << "\n";
-    }
-    outFile.close();
-    cout << "Matrix saved successfully to " << filename << "\n";
-}
-
 awaitable<void> party1(boost::asio::io_context &io_context)
 {
     try
@@ -322,13 +271,13 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             modValue);
 
         // now calculate ui=ui+vj(1-<ui,vj>)
-        cout << "Party 0 sending : ";
         for (size_t it = 0; it < k; it++)
         {
             U1i[it] = (U1i[it] + mul1[it]) % modValue;
             cout << U1i[it] << " ";
         }
         U1[i] = U1i;
+       cout<<"Party0: updated user vector share U0i\n";
         saveMatrix("U_ShareMatrix0.txt", U1);
         // sent share back to client
 

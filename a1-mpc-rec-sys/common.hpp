@@ -5,12 +5,15 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <iostream>
 #include <random>
+#include <fstream>
+#include <sstream>
 
 using boost::asio::awaitable;
 using boost::asio::co_spawn;
 using boost::asio::detached;
 using boost::asio::use_awaitable;
 using boost::asio::ip::tcp;
+using namespace std;
 namespace this_coro = boost::asio::this_coro;
 
 
@@ -74,3 +77,59 @@ inline awaitable<void> recvMatrix(tcp::socket& socket, std::vector<std::vector<i
         co_await boost::asio::async_read(socket, boost::asio::buffer(matrixM[r].data(), cols * sizeof(int)), boost::asio::use_awaitable);
     }
 }
+
+
+
+
+vector<vector<int>> loadMatrix(const string &filename)
+{
+    ifstream inFile(filename);
+    if (!inFile)
+    {
+        cerr << "Error opening file for reading: " << filename << endl;
+        return {};
+    }
+
+    vector<vector<int>> matrix;
+    string line;
+
+    while (getline(inFile, line))
+    {
+        stringstream ss(line);
+        int val;
+        vector<int> row;
+        while (ss >> val)
+        {
+            row.push_back(val);
+        }
+        if (!row.empty())
+            matrix.push_back(row);
+    }
+
+    inFile.close();
+    return matrix;
+}
+
+void saveMatrix(const string &filename, const vector<vector<int>> &matrix)
+{
+    ofstream outFile(filename);
+    if (!outFile)
+    {
+        cerr << "Error opening file for writing: " << filename << endl;
+        return;
+    }
+
+    for (const auto &row : matrix)
+    {
+        for (size_t i = 0; i < row.size(); ++i)
+        {
+            outFile << row[i];
+            if (i != row.size() - 1)
+                outFile << " ";
+        }
+        outFile << "\n";
+    }
+    outFile.close();
+    cout << "Matrix saved successfully to " << filename << "\n";
+}
+

@@ -92,56 +92,6 @@ awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<int> &
     co_return;
 }
 
-vector<vector<int>> loadMatrix(const string &filename)
-{
-    ifstream inFile(filename);
-    if (!inFile)
-    {
-        cerr << "Error opening file for reading: " << filename << endl;
-        return {};
-    }
-
-    vector<vector<int>> matrix;
-    string line;
-
-    while (getline(inFile, line))
-    {
-        stringstream ss(line);
-        int val;
-        vector<int> row;
-        while (ss >> val)
-        {
-            row.push_back(val);
-        }
-        if (!row.empty())
-            matrix.push_back(row);
-    }
-
-    inFile.close();
-    return matrix;
-}
-void saveMatrix(const string &filename, const vector<vector<int>> &matrix)
-{
-    ofstream outFile(filename);
-    if (!outFile)
-    {
-        cerr << "Error opening file for writing: " << filename << endl;
-        return;
-    }
-
-    for (const auto &row : matrix)
-    {
-        for (size_t i = 0; i < row.size(); ++i)
-        {
-            outFile << row[i];
-            if (i != row.size() - 1)
-                outFile << " ";
-        }
-        outFile << "\n";
-    }
-    outFile.close();
-    cout << "Matrix saved successfully to " << filename << "\n";
-}
 
 awaitable<void> party0(boost::asio::io_context &io_context)
 {
@@ -221,6 +171,8 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         co_await sendMatrix(peer_socket, blindM0);
         co_await recvMatrix(peer_socket, blindM1);
 
+
+        cout<<"Party0: received blinds from Party1\n";
         // compute alphaM, betaM
         vector<int> alphaV(n);
         vector<vector<int>> betaM(n, vector<int>(k));
@@ -240,6 +192,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
             CShare0,
             modValue);
 
+            cout<<"Party0: computed share of Vj\n";
         // take ith row of matrix user
         vector<int> U0i = U0[i];
         /*
@@ -269,6 +222,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         co_await sendVector(peer_socket, VB0);
         co_await recvVector(peer_socket, VB1);
 
+        cout<<"Party0: received blinded vectors from Party1\n";
         // calculate alpha, beta
         vector<int> alpha(k), beta(k);
         // apha=x0+x1+a0+a1
@@ -281,6 +235,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         // compute share of mpc dot product of <ui,vi>
         int UdotV0 = mpcDotProduct(alpha, vectorB0, beta, vectorA0, scalarC0, modValue);
 
+        cout<<"Party0: computed share of dot product <ui,vj>\n";
         // compute share of 1-<ui,vj>
         int sub0 = (one0 - UdotV0) % modValue;
         sub0 = sub0 < 0 ? sub0 + modValue : sub0;
@@ -308,6 +263,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         co_await recv_int(peer_socket, blind_scalar1);
         // now calculate alpha and beta for vector mul scalar
 
+        cout<<"Party0: received blinded scalar and vector from Party1\n";
         vector<int> alphaSV(k);
         int betaS;
         for (size_t it = 0; it < k; it++)
@@ -324,14 +280,15 @@ awaitable<void> party0(boost::asio::io_context &io_context)
             modValue);
 
         // now calculate ui=ui+vj(1-<ui,vj>)
-        cout << "Party 0 sending : ";
         for (size_t it = 0; it < k; it++)
         {
             U0i[it] = (U0i[it] + mul0[it]) % modValue;
             cout << U0i[it] << " ";
         }
         U0[i] = U0i;
-        saveMatrix("U_ShareMatrix0.txt", U0);
+
+        cout<<"Party0: updated user vector share U0i\n";
+       saveMatrix("U_ShareMatrix0.txt", U0);
         // sent share back to client
 
         co_await sendFinalSharesToDealer(socket, U0i);

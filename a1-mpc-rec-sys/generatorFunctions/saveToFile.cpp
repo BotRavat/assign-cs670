@@ -1,36 +1,15 @@
 #include <utility>
-#include "../headerFiles/gen_queries.h"
 #include <iostream>
 #include <cstdlib>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <sstream>
+#include "../common.hpp"
+#include "../headerFiles/gen_queries.h"
+
 
 using namespace std;
-
-void saveMatrix(const vector<vector<int>> &matrix, const string &filename)
-{
-    ofstream outFile(filename);
-    if (!outFile)
-    {
-        cerr << "Error opening file for writing: " << filename << endl;
-        return;
-    }
-
-    for (const auto &row : matrix)
-    {
-        for (size_t i = 0; i < row.size(); i++)
-        {
-            outFile << row[i];
-            if (i != row.size() - 1)
-                outFile << " ";
-        }
-        outFile << "\n";
-    }
-
-    outFile.close();
-}
 
 int main(int argc, char *argv[])
 {
@@ -61,8 +40,8 @@ int main(int argc, char *argv[])
     LatentVector U = generateLatentVector(k, modValue, m, 0); // 0 -> user
     LatentVector V = generateLatentVector(k, modValue, n, 1); // 1 -> item
 
-    saveMatrix(U.lVector, "U_matrixFull.txt");
-    saveMatrix(V.lVector, "V_matrixFull.txt");
+    saveMatrix( "U_matrixFull.txt",U.lVector);
+    saveMatrix( "V_matrixFull.txt",V.lVector);
 
     // LatentVectorShares generateVectorShares(LatentVector lVector, int modValue);
     // struct LatentVectorShares{vector<vector<int>> lvShare0, lvShare1;};
@@ -70,10 +49,10 @@ int main(int argc, char *argv[])
     LatentVectorShares VShares = generateVectorShares(V, modValue);
 
    
-    saveMatrix(UShares.lvShare0, "U_ShareMatrix0.txt");
-    saveMatrix(UShares.lvShare1, "U_ShareMatrix1.txt");
-    saveMatrix(VShares.lvShare0, "V_ShareMatrix0.txt");
-    saveMatrix(VShares.lvShare1, "V_ShareMatrix1.txt");
+    saveMatrix("U_ShareMatrix0.txt",UShares.lvShare0);
+    saveMatrix( "U_ShareMatrix1.txt",UShares.lvShare1);
+    saveMatrix( "V_ShareMatrix0.txt",VShares.lvShare0);
+    saveMatrix( "V_ShareMatrix1.txt",VShares.lvShare1);
 
     cout << "Matrices and shares saved successfully.\n";
 
