@@ -7,19 +7,7 @@
 using namespace std;
 using u128 = unsigned __int128;
 
-// syntax source for below random fun. --> https://learn.microsoft.com/en-us/cpp/standard-library/random?view=msvc-170
-/**
- random_device rd;                      // non-deterministic generator
- mt19937 gen(rd());                     // to seed mersenne twister.
- uniform_int_distribution<> dist(1, 6); // distribute results between 1 and 6 inclusive.
- for (int i = 0; i < 5; ++i)
- {
-     cout << dist(gen) << " "; // pass the generator to the distribution.
- }
-**/
-
 random_device rd;
-
 // only one can be used here but for result reproducability we can give choosen seed in place of rd()
 namespace
 {
@@ -129,15 +117,53 @@ pair<u128, u128> prg2(u128 parentSeed)
     return {bytesToUint128(leftChild), bytesToUint128(rightChild)};
 }
 
+vector<u128> prgVector(u128 seed, int dim)
+{
+    vector<u128> out(dim);
+    array<uint8_t, 16> key{};
+    for (int k = 0; k < 16; k++)
+        key[15 - k] = seed >> (8 * k);
+
+    for (int i = 0; i < dim; i++)
+    {
+        uint8_t in[16] = {0};
+        // Store counter (supports dim up to 2^32)
+        for (int j = 0; j < 4; ++j)
+            in[15 - j] = (i >> (8 * j)) & 0xFF;
+
+        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+        if (!ctx)
+            handleErrors();
+        if (EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr, key.data(), nullptr) != 1)
+            handleErrors();
+        EVP_CIPHER_CTX_set_padding(ctx, 0);
+
+        uint8_t outbuf[16];
+        int outlen = 0;
+        if (EVP_EncryptUpdate(ctx, outbuf, &outlen, in, 16) != 1)
+            handleErrors();
+        EVP_CIPHER_CTX_free(ctx);
+
+        array<uint8_t, 16> arr{};
+        for (int b = 0; b < 16; b++)
+            arr[b] = outbuf[b];
+        out[i] = bytesToUint128(arr);
+    }
+    return out;
+}
+
 struct DpfKey
 {
-    int targetLocation, targetValue;
+    int targetLocation;
+    vector<u128> M1, M2; // target value at target location for respective tree
     vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
     vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
     vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
+    vector<u128> FCW0;   // final correction word at leaf level for party 0
+    vector<u128> FCW1;   // final correction word at leaf level for party 1
 };
 
-vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size)
+vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
 {
     int height = (int)(ceil(log2(dpf_size)));
     int leaves = 1 << (height);
@@ -145,7 +171,7 @@ vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_s
     int lastParentIdx = (totalNodes - 2) / 2;
     vector<u128> VShare(totalNodes);
     VShare[0] = rootSeed;
-    vector<u128> result(leaves);
+    vector<vector<u128>> result(leaves);
 
     // generate tree using provided key {V,T,CW,dpf_size}
     for (int l = 0; l < height; l++)
@@ -175,15 +201,35 @@ vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_s
         }
     }
 
+    // modify fcw vector and echange with other party
+    int rowLength = M.size();
+    vector<u128> P0(rowLength), P1(rowLength);
+    for (int i = 0; i < rowLength; i++)
+    {
+        P0[i] = FCW[i] - M[i];
+    }
+    vector<u128> fcwm(rowLength);
+
+    for (int i = 0; i < rowLength; i++)
+    {
+        fcwm[i] = P0[i] + P1[i];
+    }
+
     // Apply final correction word to target leaf
     int leafStart = (1 << (height)) - 1;
     for (int i = 0; i < dpf_size; i++)
     {
-        result[i] = VShare[leafStart + i];
-        if (T[leafStart + i])
-        {
-            result[i] ^= CW[height + 1];
-        }
+
+        vector<u128> currLeaf(rowLength);
+        // result[i] = VShare[leafStart + i];
+        currLeaf = prgVector(VShare[i+leafStart], rowLength);
+        for (int j = 0; j < rowLength; j++)
+            if (T[leafStart + i])
+            {
+                currLeaf[j] += fcwm[j];
+            }
+
+        result.push_back(currLeaf);
     }
 
     return result;
@@ -191,45 +237,19 @@ vector<u128> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_s
 
 void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
 {
-    int targetLocation = dpf.targetLocation, targetValue = dpf.targetValue;
+    int targetLocation = dpf.targetLocation;
     vector<u128> V0 = dpf.V0, V1 = dpf.V1;
     vector<bool> T0 = dpf.T0, T1 = dpf.T1;
     vector<u128> CW = dpf.CW;
+    vector<u128> FCW0 = dpf.FCW0;
+    vector<u128> FCW1 = dpf.FCW1;
+    vector<u128> M0,M1; // will integrate M later for now using dummy M
 
-    vector<u128> eval0, eval1;
-    eval0 = evalDPF(V0[0], T0, CW, dpf_size);
-    eval1 = evalDPF(V1[0], T1, CW, dpf_size);
+    vector<vector<u128>> eval0, eval1;
+    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0,M0);
+    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1,M1);
 
-    u128 valueAtTarget;
-    if (dpf_size < 16 && totaldpfs < 3)
-        cout << "==== Eval full check ===";
-
-    for (int i = 0; i < dpf_size; i++)
-    {
-        u128 evalFull = eval0[i] ^ eval1[i];
-        if (dpf_size < 16 && totaldpfs < 3)
-        {
-            // Please remove if condition to check full long results
-            cout << endl
-                 << "For index " << i << " : ";
-            print_uint128(eval0[i]);
-            cout << " XOR ";
-            print_uint128(eval1[i]);
-            cout << " = ";
-            print_target_value(evalFull);
-        }
-        if (i == dpf.targetLocation)
-            valueAtTarget = evalFull;
-    }
-    if (dpf_size < 16 && totaldpfs < 3)
-        cout << endl;
-    if (valueAtTarget == dpf.targetValue)
-        cout << " Test Passed";
-    else
-        cout << " Test Failed";
-    cout << endl;
 }
-
 
 void generateDPF(DpfKey &dpf, int domainSize)
 {
@@ -343,54 +363,12 @@ void generateDPF(DpfKey &dpf, int domainSize)
 
     int leafStart = (1 << (height)) - 1;
     int targetLeaf = leafStart + dpf.targetLocation;
-    u128 fCW = (u128)dpf.targetValue ^ dpf.V0[targetLeaf] ^ dpf.V1[targetLeaf];
-    dpf.CW[height + 1] = fCW;
-    // Apply the final correction word only at the target leaf ( can also apply to all leafes based on their flag bits)
-    if (dpf.T0[targetLeaf])
-        dpf.V0[targetLeaf] ^= dpf.CW[height + 1];
-    if (dpf.T1[targetLeaf])
-        dpf.V1[targetLeaf] ^= dpf.CW[height + 1];
 
-    cout << "Target Index: " << dpf.targetLocation << endl;
-    cout << "Target Value: " << dpf.targetValue << endl;
-
-    //  print leaf nodes
-    int targetLeafIdx = leafStart + dpf.targetLocation;
-    u128 leaf0 = dpf.V0[targetLeafIdx];
-    u128 leaf1 = dpf.V1[targetLeafIdx];
-    // Please uncomment below code to cross check dpf constructed
-    /*
-       cout << "\n=== Final DPF Check ===" << endl;
-       cout << "\nParty 0 (V0) leaf values:\n";
-       for (int i = leafStart; i < leafStart + leaves; i++)
-       {
-           cout << "  Leaf " << i - leafStart << ": ";
-           print_uint128(dpf.V0[i]);
-           cout << endl;
-       }
-
-       cout << "\nParty 1 (V1) leaf values:\n";
-       for (int i = leafStart; i < leafStart + leaves; i++)
-       {
-           cout << "  Leaf " << i - leafStart << ": ";
-           print_uint128(dpf.V1[i]);
-           cout << endl;
-       }
-       cout << "\nFinal correction word fCW: ";
-       print_uint128(fCW);
-       cout << endl;
-       */
-    cout << " DPFs, generated \n";
-    cout << "Target leaf XOR check:\n";
-    cout << "  V0[target] = ";
-    print_uint128(leaf0);
-    cout << "\n  V1[target] = ";
-    print_uint128(leaf1);
-    cout << "\n  XOR result = ";
-    print_uint128(leaf0 ^ leaf1);
-    cout << "\n  Expected   = ";
-    print_target_value(dpf.targetValue);
-    cout << endl;
+    int k = dpf.M1.size(); // elements in 1 row in item matrix
+    vector<u128> leafVecAtTarget0 = prgVector(dpf.V0[targetLeaf], k);
+    vector<u128> leafVecAtTarget1 = prgVector(dpf.V1[targetLeaf], k);
+    dpf.FCW0 = leafVecAtTarget0;
+    dpf.FCW1 = leafVecAtTarget1;
 }
 
 int main()
@@ -423,10 +401,9 @@ int main()
         int location;
         int64_t value;
         location = dist(genLocation);
-        value = dist2(genValue);
         dpf.targetLocation = location;
-        dpf.targetValue = value;
-
+        dpf.M1 = {32, 5, 7, 15};
+        dpf.M2 = {45, 8, 9, 20};
         dpf.V0.resize(totalNodes, (u128)0);
         dpf.V1.resize(totalNodes, (u128)0);
         dpf.T0.resize(totalNodes, false);

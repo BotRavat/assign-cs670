@@ -5,6 +5,7 @@
 #include <boost/asio.hpp>
 #include "../headerFiles/mpcOperations.h"
 #include "../common.hpp"
+#include "dpf.hpp"
 
 using boost::asio::awaitable;
 using boost::asio::use_awaitable;
@@ -214,11 +215,11 @@ awaitable<void> party0(boost::asio::io_context &io_context)
                 modValue);
 
             cout << "Party0: computed share of Vj\n";
-            for(int it=0;it<V0j.size();it++)
+            for (int it = 0; it < V0j.size(); it++)
             {
-                cout<<V0j[it]<<" ";
+                cout << V0j[it] << " ";
             }
-            cout<<endl;
+            cout << endl;
             // take ith row of matrix user
             vector<int> U0i = U0[i];
             /*
@@ -268,12 +269,12 @@ awaitable<void> party0(boost::asio::io_context &io_context)
                 modValue);
 
             cout << "Party0: computed share of dot product <ui,vj>\n";
-            cout<<"Dot product is : "<<UdotV0<<endl;
+            cout << "Dot product is : " << UdotV0 << endl;
             // compute share of 1-<ui,vj>
             int sub0 = (one0 - UdotV0) % modValue;
             sub0 = sub0 < 0 ? sub0 + modValue : sub0;
 
-            cout<<"1- dot is : "<<sub0<<endl;
+            cout << "1- dot is : " << sub0 << endl;
 
             // to compute vj(1- <ui,vj)
 
@@ -313,21 +314,91 @@ awaitable<void> party0(boost::asio::io_context &io_context)
                 AShare0,
                 CShare0,
                 modValue);
-cout<<"mul is : ";
-                 for (int it = 0; it < mul0.size(); it++)
+            cout << "mul is : ";
+            for (int it = 0; it < mul0.size(); it++)
             {
                 cout << mul0[it] << " ";
             }
             cout << endl;
-            
-            // now calculate ui=ui+vj(1-<ui,vj>)
-            cout<<"final updated ui is: "<<endl;
-            for (size_t it = 0; it < k; it++)
+
+            // now we will use dpf
+            vector<int> M = mul0;
+
+            //         vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
+            // {
+            int dpf_size = pow(2, k);
+            int height = (int)(ceil(log2(dpf_size)));
+            int leaves = 1 << (height);
+            int totalNodes = 2 * leaves - 1;
+            int lastParentIdx = (totalNodes - 2) / 2;
+            vector<u128> VShare(totalNodes);
+            VShare[0] = rootSeed;
+            vector<vector<u128>> result(leaves);
+
+            // generate tree using provided key {V,T,CW,dpf_size}
+            for (int l = 0; l < height; l++)
             {
-                U0i[it] = (U0i[it] + mul0[it]) % modValue;
-                cout << U0i[it] << " ";
+
+                int lvlStrt = (1 << l) - 1;
+                int nodesAtLevel = 1 << l;
+                int childLevel = l + 1;
+
+                // generate childrens
+                for (int i = 0; i < nodesAtLevel; i++)
+                {
+                    int parentIdx = lvlStrt + i;
+                    int leftChildIdx = 2 * parentIdx + 1;
+                    int rightChildIdx = 2 * parentIdx + 2;
+
+                    pair<u128, u128> childSeed = prg2(VShare[parentIdx]);
+                    VShare[leftChildIdx] = childSeed.first;   // left child
+                    VShare[rightChildIdx] = childSeed.second; // right child
+
+                    // apply correction word to nodes
+                    if (T[parentIdx])
+                    {
+                        VShare[leftChildIdx] ^= CW[childLevel];
+                        VShare[rightChildIdx] ^= CW[childLevel];
+                    }
+                }
             }
-            U0[i] = U0i;
+
+            // modify fcw vector and echange with other party
+            int rowLength = M.size();
+            vector<u128> P0(rowLength), P1(rowLength);
+            for (int i = 0; i < rowLength; i++)
+            {
+                P0[i] = FCW[i] - M[i];
+            }
+
+            co_await sendVector(peer_socket, P0);
+            co_await recvVector(peer_socket, P1);
+            vector<u128> fcwm(rowLength);
+
+            for (int i = 0; i < rowLength; i++)
+            {
+                fcwm[i] = P0[i] + P1[i];
+            }
+
+            // Apply final correction word to target leaf
+            int leafStart = (1 << (height)) - 1;
+            for (int i = 0; i < dpf_size; i++)
+            {
+
+                vector<u128> currLeaf(rowLength);
+                // result[i] = VShare[leafStart + i];
+                currLeaf = prgVector(VShare[i + leafStart], rowLength);
+                for (int j = 0; j < rowLength; j++)
+                    if (T[leafStart + i])
+                    {
+                        currLeaf[j] += fcwm[j];
+                    }
+
+                result.push_back(currLeaf);
+            }
+
+            //     return result;
+            // }
 
             cout << "Party0: updated user vector share U0i\n";
             // saveMatrix("U_ShareMatrix0.txt", U0);
