@@ -13,6 +13,8 @@
 
 using namespace std;
 using u128 = unsigned __int128;
+using boost::asio::ip::tcp;
+// using boost::asio::awaitable;
 
 random_device rd;
 // only one can be used here but for result reproducability we can give choosen seed in place of rd()
@@ -159,9 +161,19 @@ vector<u128> prgVector(u128 seed, int dim)
     return out;
 }
 
-
-vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
+struct DpfKey
 {
+    int targetLocation;
+    vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
+    vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
+    vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
+    vector<u128> FCW0;   // final correction word at leaf level for party 0
+    vector<u128> FCW1;   // final correction word at leaf level for party 1
+};
+
+vector<vector<u128>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
+{
+    // int dpf_size = pow(2, k);
     int height = (int)(ceil(log2(dpf_size)));
     int leaves = 1 << (height);
     int totalNodes = 2 * leaves - 1;
@@ -198,13 +210,16 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
         }
     }
 
-    // modify fcw vector and exchange with other party
+    // modify fcw vector and echange with other party
     int rowLength = M.size();
     vector<u128> P0(rowLength), P1(rowLength);
     for (int i = 0; i < rowLength; i++)
     {
         P0[i] = FCW[i] - M[i];
     }
+
+    co_await sendVector(peer_socket, P0);
+    co_await recvVector(peer_socket, P1);
     vector<u128> fcwm(rowLength);
 
     for (int i = 0; i < rowLength; i++)
@@ -219,7 +234,7 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
         vector<u128> currLeaf(rowLength);
         // result[i] = VShare[leafStart + i];
-        currLeaf = prgVector(VShare[i+leafStart], rowLength);
+        currLeaf = prgVector(VShare[i + leafStart], rowLength);
         for (int j = 0; j < rowLength; j++)
             if (T[leafStart + i])
             {
@@ -231,17 +246,6 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
     return result;
 }
-
-
-struct DpfKey
-{
-    int targetLocation;
-    vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
-    vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
-    vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
-    vector<u128> FCW0;   // final correction word at leaf level for party 0
-    vector<u128> FCW1;   // final correction word at leaf level for party 1
-};
 
 void generateDPF(DpfKey &dpf, int domainSize)
 {

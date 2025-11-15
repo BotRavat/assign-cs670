@@ -5,12 +5,14 @@
 #include <boost/asio.hpp>
 #include "../headerFiles/mpcOperations.h"
 #include "../common.hpp"
+#include "dpf.hpp"
 
 using boost::asio::awaitable;
 using boost::asio::use_awaitable;
 using boost::asio::ip::tcp;
 using namespace std;
 
+using u128= unsigned __int128;
 // Coroutine to receive all shares and triplets from dealer
 awaitable<bool> receiveSharesFromDealer(
     tcp::socket &socket,
@@ -19,7 +21,8 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA1, vector<int> &vectorB1, int &scalarC1,
     vector<int> &AShare1, int &bShare1, vector<int> &CShare1,
     vector<int> &eShare1,
-    int &one1, int &query_i)
+        int &one0, int &query_i, u128 rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
+
 {
 
     int first;
@@ -51,6 +54,10 @@ awaitable<bool> receiveSharesFromDealer(
     CShare1.resize(k);
 
     eShare1.resize(n);
+
+    T1.resize(2 * n - 1);
+    CW.resize((int)(ceil(log2(n))) + 1);
+    FCW1.resize(k);
 
     // matrix-vector triplet
     co_await recvVector(socket, AVShare1);
@@ -86,6 +93,18 @@ awaitable<bool> receiveSharesFromDealer(
          << flush;
     co_await recv_int(socket, query_i);
     cout << "Party0: received query_i = " << query_i << "\n"
+         << flush;
+
+
+         co_await recvVector(socket, T1);
+    cout << "Party1: received T0 size = " << T1.size() << "\n"
+         << flush;
+
+    co_await recvVector(socket, CW);
+    cout << "Party1: received CW size = " << CW.size() << "\n"
+         << flush;
+    co_await recvVector(socket, FCW1);
+    cout << "Party1: received FCW size = " << FCW1.size() << "\n"
          << flush;
 
     co_return true;
@@ -136,6 +155,12 @@ awaitable<void> party1(boost::asio::io_context &io_context)
 
         int one1, query_i;
 
+        u128 rootSeed;
+        vector<bool> T1;
+        vector<u128> CW;
+        vector<u128> FCW1;
+
+
         while (true)
         {
 
@@ -145,7 +170,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 AVShare1, BMShare1, CVShare1,
                 vectorA1, vectorB1, scalarC1,
                 AShare1, bShare1, CShare1,
-                eShare1, one1, query_i);
+                eShare1, one1, query_i,rootSeed,T1,CW,FCW1);
 
             if (!has_query)
             {
@@ -311,14 +336,18 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             }
             cout << endl;
 
-            // now calculate ui=ui+vj(1-<ui,vj>)
-            cout<<"final updated ui is: "<<endl;
-            for (size_t it = 0; it < k; it++)
+          
+              vector<u128> M0;
+            M0.reserve(mul1.size());
+            for (int v : mul1)
             {
-                U1i[it] = (U1i[it] + mul1[it]) % modValue;
-                cout << U1i[it] << " ";
+                M0.push_back(static_cast<u128>(v));
             }
-            U1[i] = U1i;
+
+            int dpf_size = pow(2, k);
+            vector<vector<u128>> result = evalDPF(peer_socket, rootSeed, T1, CW, dpf_size, FCW1, M1);
+
+
             cout << "Party0: updated user vector share U0i\n";
             // saveMatrix("U_ShareMatrix0.txt", U1);
             // sent share back to client

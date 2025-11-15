@@ -165,6 +165,7 @@ struct DpfKey
 
 vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
 {
+    // int dpf_size = pow(2, k);
     int height = (int)(ceil(log2(dpf_size)));
     int leaves = 1 << (height);
     int totalNodes = 2 * leaves - 1;
@@ -208,6 +209,54 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
     {
         P0[i] = FCW[i] - M[i];
     }
+
+
+    return P0;
+    // co_await sendVector(peer_socket, P0);
+    // co_await recvVector(peer_socket, P1);
+    // vector<u128> fcwm(rowLength);
+
+    // for (int i = 0; i < rowLength; i++)
+    // {
+    //     fcwm[i] = P0[i] + P1[i];
+    // }
+
+    // // Apply final correction word to target leaf
+    // int leafStart = (1 << (height)) - 1;
+    // for (int i = 0; i < dpf_size; i++)
+    // {
+
+    //     vector<u128> currLeaf(rowLength);
+    //     // result[i] = VShare[leafStart + i];
+    //     currLeaf = prgVector(VShare[i + leafStart], rowLength);
+    //     for (int j = 0; j < rowLength; j++)
+    //         if (T[leafStart + i])
+    //         {
+    //             currLeaf[j] += fcwm[j];
+    //         }
+
+    //     result.push_back(currLeaf);
+    // }
+
+    // return result;
+}
+
+void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
+{
+    int targetLocation = dpf.targetLocation;
+    vector<u128> V0 = dpf.V0, V1 = dpf.V1;
+    vector<bool> T0 = dpf.T0, T1 = dpf.T1;
+    vector<u128> CW = dpf.CW;
+    vector<u128> FCW0 = dpf.FCW0;
+    vector<u128> FCW1 = dpf.FCW1;
+    vector<u128> M0, M1; // will integrate M later for now using dummy M
+
+    vector<vector<u128>> eval0, eval1;
+    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0, M0);
+    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1, M1);
+
+    int rowLength = M0.size();
+    vector<u128> P0(rowLength)=eval0, P1(rowLength)=eval1;
     vector<u128> fcwm(rowLength);
 
     for (int i = 0; i < rowLength; i++)
@@ -222,7 +271,7 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
         vector<u128> currLeaf(rowLength);
         // result[i] = VShare[leafStart + i];
-        currLeaf = prgVector(VShare[i+leafStart], rowLength);
+        currLeaf = prgVector(VShare[i + leafStart], rowLength);
         for (int j = 0; j < rowLength; j++)
             if (T[leafStart + i])
             {
@@ -233,22 +282,6 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
     }
 
     return result;
-}
-
-void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
-{
-    int targetLocation = dpf.targetLocation;
-    vector<u128> V0 = dpf.V0, V1 = dpf.V1;
-    vector<bool> T0 = dpf.T0, T1 = dpf.T1;
-    vector<u128> CW = dpf.CW;
-    vector<u128> FCW0 = dpf.FCW0;
-    vector<u128> FCW1 = dpf.FCW1;
-    vector<u128> M0,M1; // will integrate M later for now using dummy M
-
-    vector<vector<u128>> eval0, eval1;
-    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0,M0);
-    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1,M1);
-
 }
 
 void generateDPF(DpfKey &dpf, int domainSize)
