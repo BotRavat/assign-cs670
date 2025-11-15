@@ -176,12 +176,18 @@ awaitable<void> party1(boost::asio::io_context &io_context)
 
             for (size_t it = 0; it < n; it++)
             {
-                blindV1[it] = (eShare1[it] + AVShare1[it]) % modValue;
+                blindV1[it] = (eShare1[it] - AVShare1[it]) % modValue;
+                if (blindV1[it] < 0)
+                    blindV1[it] += modValue;
             }
 
             for (size_t it = 0; it < n; it++)
                 for (size_t j = 0; j < k; j++)
-                    blindM1[it][j] = (V1[it][j] + BMShare1[it][j]) % modValue;
+                {
+                    blindM1[it][j] = (V1[it][j] - BMShare1[it][j]) % modValue;
+                    if (blindM1[it][j] < 0)
+                        blindM1[it][j] += modValue;
+                }
 
             co_await sendVector(peer_socket, blindV1);
             co_await recvVector(peer_socket, blindV0);
@@ -189,7 +195,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             co_await recvMatrix(peer_socket, blindM0);
 
             // compute alphaM, betaM
-            vector<int> alphaV(n);
+              vector<int> alphaV(n);
             vector<vector<int>> betaM(n, vector<int>(k));
             for (size_t it = 0; it < n; it++)
             {
@@ -199,13 +205,23 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             }
 
             // get the share of row vi
-            vector<int> V1j = mpcVectorandMatrixMul(
+            // vector<int> V1j = mpcVectorandMatrixMul(
+            //     alphaV,
+            //     V1,
+            //     betaM,
+            //     AVShare1,
+            //     CShare1,
+            //     modValue);
+
+            vector<int> V1j = mpcVectorandMatrixMulBeaver(
                 alphaV,
-                V1,
+                BMShare1,
                 betaM,
                 AVShare1,
-                CShare1,
+                CVShare1,
+                false,
                 modValue);
+
             cout << "Party1: computed share of Vj\n";
             for (int it = 0; it < V1j.size(); it++)
             {

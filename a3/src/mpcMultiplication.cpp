@@ -5,35 +5,77 @@
 
 using namespace std;
 
-vector<int> mpcVectorandMatrixMul(
-    const vector<int>& alphaV,        // 1 x n
-    const vector<vector<int>>& V,     // n x k
-    const vector<vector<int>>& betaM, // n x k
-    const vector<int>& AVShare0,      // length n
-    const vector<int>& C,             // length k
+// vector<int> mpcVectorandMatrixMul(
+//     const vector<int>& alphaV,        // 1 x n
+//     const vector<vector<int>>& V,     // n x k
+//     const vector<vector<int>>& betaM, // n x k
+//     const vector<int>& AVShare0,      // length n
+//     const vector<int>& C,             // length k
+//     int modValue)
+// {
+//     int n = (int)alphaV.size();
+//     int k = V.empty() ? 0 : (int)V[0].size();
+//     vector<int> z;
+//     z.resize(k);
+
+//     for (int col = 0; col < k; ++col)
+//     {
+//         long long mul1 = 0;
+//         long long mul2 = 0;
+//         for (int row = 0; row < n; ++row)
+//         {
+//             mul1 = (mul1 + (long long)alphaV[row] * (long long)V[row][col]) % modValue;
+//             mul2 = (mul2 + (long long)AVShare0[row] * (long long)betaM[row][col]) % modValue;
+//         }
+//         long long res = (mul1 - mul2 + C[col]) % modValue;
+//         if (res < 0) res += modValue;
+//         z[col] = (int)res;
+//     }
+
+//     return z;
+// }
+
+vector<int> mpcVectorandMatrixMulBeaver(
+    const vector<int>& alphaV,              // d = x - a
+    const vector<vector<int>>& VShare,      // b_i
+    const vector<vector<int>>& betaM,       // e = y - b
+    const vector<int>& AVShare,             // a_i
+    const vector<int>& CShare,              // c_i
+    bool isParty0,                          // true only on party0
     int modValue)
 {
     int n = (int)alphaV.size();
-    int k = V.empty() ? 0 : (int)V[0].size();
-    vector<int> z;
-    z.resize(k);
+    int k = (int)VShare[0].size();
 
-    for (int col = 0; col < k; ++col)
+    vector<int> z(k);
+    long long temp = 0;
+
+    for (int col = 0; col < k; col++)
     {
-        long long mul1 = 0;
-        long long mul2 = 0;
-        for (int row = 0; row < n; ++row)
+        long long term = CShare[col]; // c_i[col]
+
+        // d * b_i  (1×n times n×k)
+        for (int row = 0; row < n; row++)
+            term = (term + (long long)alphaV[row] * VShare[row][col]) % modValue;
+
+        // a_i * e  (1×n times n×k)
+        for (int row = 0; row < n; row++)
+            term = (term + (long long)AVShare[row] * betaM[row][col]) % modValue;
+
+        // only party0 adds d*e
+        if (isParty0)
         {
-            mul1 = (mul1 + (long long)alphaV[row] * (long long)V[row][col]) % modValue;
-            mul2 = (mul2 + (long long)AVShare0[row] * (long long)betaM[row][col]) % modValue;
+            for (int row = 0; row < n; row++)
+                term = (term + (long long)alphaV[row] * betaM[row][col]) % modValue;
         }
-        long long res = (mul1 - mul2 + C[col]) % modValue;
-        if (res < 0) res += modValue;
-        z[col] = (int)res;
+
+        if (term < 0) term += modValue;
+        z[col] = (int)term;
     }
 
     return z;
 }
+
 
 int mpcDotProduct(
     const vector<int>& alpha,

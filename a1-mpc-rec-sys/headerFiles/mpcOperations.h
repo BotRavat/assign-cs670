@@ -6,14 +6,23 @@
 #include <cstdint>
 using namespace std;
 
-vector<int> mpcVectorandMatrixMul(
-    const vector<int>& alphaV,
-    const vector<vector<int>>& V0,
-    const vector<vector<int>>& betaM,
-    const vector<int>& AVShare0,
-    const vector<int>& CShare0,
-    int modValue);
+// vector<int> mpcVectorandMatrixMul(
+//     const vector<int>& alphaV,
+//     const vector<vector<int>>& V0,
+//     const vector<vector<int>>& betaM,
+//     const vector<int>& AVShare0,
+//     const vector<int>& CShare0,
+//     int modValue);
 
+vector<int> mpcVectorandMatrixMulBeaver(
+    const vector<int>& alphaV,               // d = x - a
+    const vector<vector<int>>& VShare,       // b_i (BMShare0 / BMShare1)
+    const vector<vector<int>>& betaM,        // e = y - b
+    const vector<int>& AVShare,              // a_i (AVShare0 / AVShare1)
+    const vector<int>& CShare,               // c_i (CVShare0 / CVShare1)
+    bool isParty0,                           // only Party0 adds d*e
+    int modValue);
+    
 vector<int> mpcVectorandScalarMul(
     const vector<int>& alpha,
     int bShare,

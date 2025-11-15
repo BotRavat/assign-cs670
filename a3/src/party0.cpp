@@ -182,12 +182,19 @@ awaitable<void> party0(boost::asio::io_context &io_context)
 
             for (size_t it = 0; it < n; it++)
             {
-                blindV0[it] = (eShare0[it] + AVShare0[it]) % modValue;
+                blindV0[it] = (eShare0[it] - AVShare0[it]) % modValue;
+                if (blindV0[it] < 0)
+                    blindV0[it] += modValue;
             }
 
             for (size_t it = 0; it < n; it++)
                 for (size_t j = 0; j < k; j++)
-                    blindM0[it][j] = (V0[it][j] + BMShare0[it][j]) % modValue;
+                {
+
+                    blindM0[it][j] = (V0[it][j] - BMShare0[it][j]) % modValue;
+                    if (blindM0[it][j] < 0)
+                        blindM0[it][j] += modValue;
+                }
 
             co_await sendVector(peer_socket, blindV0);
             co_await recvVector(peer_socket, blindV1);
@@ -206,12 +213,21 @@ awaitable<void> party0(boost::asio::io_context &io_context)
             }
 
             // get the share of row vi
-            vector<int> V0j = mpcVectorandMatrixMul(
+            // vector<int> V0j = mpcVectorandMatrixMulBeaver(
+            //     alphaV,
+            //     V0,
+            //     betaM,
+            //     AVShare0,
+            //     CShare0,
+            //     modValue);
+
+            vector<int> V0j = mpcVectorandMatrixMulBeaver(
                 alphaV,
-                V0,
+                BMShare0,
                 betaM,
                 AVShare0,
-                CShare0,
+                CVShare0,
+                true,
                 modValue);
 
             cout << "Party0: computed share of Vj\n";

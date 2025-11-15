@@ -176,12 +176,18 @@ awaitable<void> party1(boost::asio::io_context &io_context)
 
             for (size_t it = 0; it < n; it++)
             {
-                blindV1[it] = (eShare1[it] + AVShare1[it]) % modValue;
+                blindV1[it] = (eShare1[it] - AVShare1[it]) % modValue;
+                if (blindV1[it] < 0)
+                    blindV1[it] += modValue;
             }
 
             for (size_t it = 0; it < n; it++)
                 for (size_t j = 0; j < k; j++)
-                    blindM1[it][j] = (V1[it][j] + BMShare1[it][j]) % modValue;
+                {
+                    blindM1[it][j] = (V1[it][j] - BMShare1[it][j]) % modValue;
+                    if (blindM1[it][j] < 0)
+                        blindM1[it][j] += modValue;
+                }
 
             co_await sendVector(peer_socket, blindV1);
             co_await recvVector(peer_socket, blindV0);
@@ -199,13 +205,23 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             }
 
             // get the share of row vi
-            vector<int> V1j = mpcVectorandMatrixMul(
+            // vector<int> V1j = mpcVectorandMatrixMul(
+            //     alphaV,
+            //     V1,
+            //     betaM,
+            //     AVShare1,
+            //     CShare1,
+            //     modValue);
+
+            vector<int> V1j = mpcVectorandMatrixMulBeaver(
                 alphaV,
-                V1,
+                BMShare1,
                 betaM,
                 AVShare1,
-                CShare1,
+                CVShare1,
+                false,
                 modValue);
+
             cout << "Party1: computed share of Vj\n";
             for (int it = 0; it < V1j.size(); it++)
             {
@@ -259,12 +275,12 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 scalarC1,
                 modValue);
 
-            cout<<"Dot product is : "<<UdotV1<<endl;
+            cout << "Dot product is : " << UdotV1 << endl;
 
             // compute share of 1-<ui,vj>
             int sub1 = (one1 - UdotV1) % modValue;
             sub1 = sub1 < 0 ? sub1 + modValue : sub1;
-            cout<<"1- dot is : "<<sub1<<endl;
+            cout << "1- dot is : " << sub1 << endl;
 
             // to compute vj(1- <ui,vj)
 
@@ -304,15 +320,15 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 CShare1,
                 modValue);
 
-                cout<<"mul is : ";
-                 for (int it = 0; it < mul1.size(); it++)
+            cout << "mul is : ";
+            for (int it = 0; it < mul1.size(); it++)
             {
                 cout << mul1[it] << " ";
             }
             cout << endl;
 
             // now calculate ui=ui+vj(1-<ui,vj>)
-            cout<<"final updated ui is: "<<endl;
+            cout << "final updated ui is: " << endl;
             for (size_t it = 0; it < k; it++)
             {
                 U1i[it] = (U1i[it] + mul1[it]) % modValue;
