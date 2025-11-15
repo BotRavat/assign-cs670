@@ -247,6 +247,13 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
         dpf.FCW0.resize(k, (u128)0);
         dpf.FCW1.resize(k, (u128)0);
         generateDPF(dpf, dpf_size);
+        u128 rootSeed= dpf.V0[0];
+        vector<bool> T0= dpf.T0;
+        vector<bool>T1= dpf.T1;
+        vector<u128> CW= dpf.CW;
+        vector<u128> FCW0= dpf.FCW0;
+        vector<u128> FCW1= dpf.FCW1;
+
 
         // Send to both parties in parallel
         co_spawn(io, [&]() -> awaitable<void>
@@ -256,7 +263,7 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
                                           vTripletSharesS.vectorA0, vTripletSharesS.vectorB0, vTripletSharesS.scalarC0,
                                           eShares.eshare0,
                                           mvTripletShares.AVShare0, mvTripletShares.BMShare0, mvTripletShares.CVShare0,
-                                          oneShares.first, query_i);
+                                          oneShares.first, query_i,rootSeed,T0,CW,FCW0);
             co_return; }(), detached);
 
         co_spawn(io, [&]() -> awaitable<void>
@@ -266,7 +273,7 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
                                           vTripletSharesS.vectorA1, vTripletSharesS.vectorB1, vTripletSharesS.scalarC1,
                                           eShares.eshare1,
                                           mvTripletShares.AVShare1, mvTripletShares.BMShare1, mvTripletShares.CVShare1,
-                                          oneShares.second, query_i);
+                                          oneShares.second, query_i,rootSeed,T1,CW,FCW1);
             co_return; }(), detached);
 
         // Wait for both parties to return final shares

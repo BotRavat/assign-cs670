@@ -11,6 +11,7 @@ using boost::asio::awaitable;
 using boost::asio::use_awaitable;
 using boost::asio::ip::tcp;
 using namespace std;
+using u128 = unsigned __int128;
 
 // Coroutine to receive all shares and triplets from dealer
 awaitable<bool> receiveSharesFromDealer(
@@ -20,7 +21,7 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA0, vector<int> &vectorB0, int &scalarC0,
     vector<int> &AShare0, int &bShare0, vector<int> &CShare0,
     vector<int> &eShare0,
-    int &one0, int &query_i)
+    int &one0, int &query_i, u128 rootSeed, vector<bool> &T0, vector<u128> &CW, vector<u128> &FCW0)
 {
 
     int first;
@@ -52,6 +53,10 @@ awaitable<bool> receiveSharesFromDealer(
     CShare0.resize(k);
 
     eShare0.resize(n);
+
+    T0.resize(2 * n - 1);
+    CW.resize((int)(ceil(log2(n))) + 1);
+    FCW0.resize(k);
 
     // matrix-vector triplet
     co_await recvVector(socket, AVShare0);
@@ -87,6 +92,21 @@ awaitable<bool> receiveSharesFromDealer(
          << flush;
     co_await recv_int(socket, query_i);
     cout << "Party0: received query_i = " << query_i << "\n"
+         << flush;
+
+    co_await recv_int(socket, rootSeed);
+    cout << "Party0: received rootSeed\n"
+         << flush;
+
+    co_await recvVector(socket, T0);
+    cout << "Party0: received T0 size = " << T0.size() << "\n"
+         << flush;
+
+    co_await recvVector(socket, CW);
+    cout << "Party0: received CW size = " << CW.size() << "\n"
+         << flush;
+    co_await recvVector(socket, FCW0);
+    cout << "Party0: received FCW size = " << FCW0.size() << "\n"
          << flush;
 
     co_return true;
@@ -142,6 +162,11 @@ awaitable<void> party0(boost::asio::io_context &io_context)
 
         int one0, query_i;
 
+        u128 rootSeed;
+        vector<bool> T0;
+        vector<u128> CW;
+        vector<u128> FCW0;
+
         while (true)
         {
             // receive all shares of 1 query from dealer
@@ -151,7 +176,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
                 AVShare0, BMShare0, CVShare0,
                 vectorA0, vectorB0, scalarC0,
                 AShare0, bShare0, CShare0,
-                eShare0, one0, query_i);
+                eShare0, one0, query_i, rootSeed, T0, CW, FCW0);
 
             if (!has_query)
             {
@@ -338,80 +363,87 @@ awaitable<void> party0(boost::asio::io_context &io_context)
             cout << endl;
 
             // now we will use dpf
-            vector<int> M = mul0;
+            vector<u128> M0;
+            M0.reserve(mul0.size());
+            for (int v : mul0)
+            {
+                M0.push_back(static_cast<u128>(v));
+            }
+
+            int dpf_size = pow(2, k);
+            vector<vector<u128>> result = evalDPF(peer_socket, rootSeed, T0, CW, dpf_size, FCW0, M0);
 
             //         vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
             // {
-            int dpf_size = pow(2, k);
-            int height = (int)(ceil(log2(dpf_size)));
-            int leaves = 1 << (height);
-            int totalNodes = 2 * leaves - 1;
-            int lastParentIdx = (totalNodes - 2) / 2;
-            vector<u128> VShare(totalNodes);
-            VShare[0] = rootSeed;
-            vector<vector<u128>> result(leaves);
+            // int height = (int)(ceil(log2(dpf_size)));
+            // int leaves = 1 << (height);
+            // int totalNodes = 2 * leaves - 1;
+            // int lastParentIdx = (totalNodes - 2) / 2;
+            // vector<u128> VShare(totalNodes);
+            // VShare[0] = rootSeed;
+            // vector<vector<u128>> result(leaves);
 
-            // generate tree using provided key {V,T,CW,dpf_size}
-            for (int l = 0; l < height; l++)
-            {
+            // // generate tree using provided key {V,T,CW,dpf_size}
+            // for (int l = 0; l < height; l++)
+            // {
 
-                int lvlStrt = (1 << l) - 1;
-                int nodesAtLevel = 1 << l;
-                int childLevel = l + 1;
+            //     int lvlStrt = (1 << l) - 1;
+            //     int nodesAtLevel = 1 << l;
+            //     int childLevel = l + 1;
 
-                // generate childrens
-                for (int i = 0; i < nodesAtLevel; i++)
-                {
-                    int parentIdx = lvlStrt + i;
-                    int leftChildIdx = 2 * parentIdx + 1;
-                    int rightChildIdx = 2 * parentIdx + 2;
+            //     // generate childrens
+            //     for (int i = 0; i < nodesAtLevel; i++)
+            //     {
+            //         int parentIdx = lvlStrt + i;
+            //         int leftChildIdx = 2 * parentIdx + 1;
+            //         int rightChildIdx = 2 * parentIdx + 2;
 
-                    pair<u128, u128> childSeed = prg2(VShare[parentIdx]);
-                    VShare[leftChildIdx] = childSeed.first;   // left child
-                    VShare[rightChildIdx] = childSeed.second; // right child
+            //         pair<u128, u128> childSeed = prg2(VShare[parentIdx]);
+            //         VShare[leftChildIdx] = childSeed.first;   // left child
+            //         VShare[rightChildIdx] = childSeed.second; // right child
 
-                    // apply correction word to nodes
-                    if (T[parentIdx])
-                    {
-                        VShare[leftChildIdx] ^= CW[childLevel];
-                        VShare[rightChildIdx] ^= CW[childLevel];
-                    }
-                }
-            }
+            //         // apply correction word to nodes
+            //         if (T0[parentIdx])
+            //         {
+            //             VShare[leftChildIdx] ^= CW[childLevel];
+            //             VShare[rightChildIdx] ^= CW[childLevel];
+            //         }
+            //     }
+            // }
 
-            // modify fcw vector and echange with other party
-            int rowLength = M.size();
-            vector<u128> P0(rowLength), P1(rowLength);
-            for (int i = 0; i < rowLength; i++)
-            {
-                P0[i] = FCW[i] - M[i];
-            }
+            // // modify fcw vector and echange with other party
+            // int rowLength = M0.size();
+            // vector<u128> P0(rowLength), P1(rowLength);
+            // for (int i = 0; i < rowLength; i++)
+            // {
+            //     P0[i] = FCW0[i] - M0[i];
+            // }
 
-            co_await sendVector(peer_socket, P0);
-            co_await recvVector(peer_socket, P1);
-            vector<u128> fcwm(rowLength);
+            // co_await sendVector(peer_socket, P0);
+            // co_await recvVector(peer_socket, P1);
+            // vector<u128> fcwm(rowLength);
 
-            for (int i = 0; i < rowLength; i++)
-            {
-                fcwm[i] = P0[i] + P1[i];
-            }
+            // for (int i = 0; i < rowLength; i++)
+            // {
+            //     fcwm[i] = P0[i] + P1[i];
+            // }
 
-            // Apply final correction word to target leaf
-            int leafStart = (1 << (height)) - 1;
-            for (int i = 0; i < dpf_size; i++)
-            {
+            // // Apply final correction word to target leaf
+            // int leafStart = (1 << (height)) - 1;
+            // for (int i = 0; i < dpf_size; i++)
+            // {
 
-                vector<u128> currLeaf(rowLength);
-                // result[i] = VShare[leafStart + i];
-                currLeaf = prgVector(VShare[i + leafStart], rowLength);
-                for (int j = 0; j < rowLength; j++)
-                    if (T[leafStart + i])
-                    {
-                        currLeaf[j] += fcwm[j];
-                    }
+            //     vector<u128> currLeaf(rowLength);
+            //     // result[i] = VShare[leafStart + i];
+            //     currLeaf = prgVector(VShare[i + leafStart], rowLength);
+            //     for (int j = 0; j < rowLength; j++)
+            //         if (T0[leafStart + i])
+            //         {
+            //             currLeaf[j] += fcwm[j];
+            //         }
 
-                result.push_back(currLeaf);
-            }
+            //     result.push_back(currLeaf);
+            // }
 
             //     return result;
             // }
