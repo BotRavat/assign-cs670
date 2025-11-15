@@ -29,6 +29,16 @@ namespace
     }
 }
 
+// static inline uint64_t mod64(u128 x)
+// {
+//     return (uint64_t)(x & 0xFFFFFFFFFFFFFFFFULL);
+// }
+
+static inline uint64_t mod64(u128 x)
+{
+    return (uint64_t)(x & 63ULL); // 63 = 0b111111, same as x % 64
+}
+
 u128 bytesToUint128(const array<uint8_t, 16> &arr)
 {
     u128 val = 0;
@@ -163,7 +173,7 @@ struct DpfKey
     vector<u128> FCW1;   // final correction word at leaf level for party 1
 };
 
-vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
+vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M, vector<u128> &fcwm)
 {
     int height = (int)(ceil(log2(dpf_size)));
     int leaves = 1 << (height);
@@ -203,33 +213,37 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
     // modify fcw vector and echange with other party
     int rowLength = M.size();
-    vector<u128> P0(rowLength), P1(rowLength);
-    for (int i = 0; i < rowLength; i++)
-    {
-        P0[i] = FCW[i] - M[i];
-    }
-    vector<u128> fcwm(rowLength);
+    // vector<u128> P0(rowLength), P1(rowLength);
+    // for (int i = 0; i < rowLength; i++)
+    // {
+    //     P0[i] = FCW[i] - M[i];
+    // }
+    // vector<u128> fcwm(rowLength);
 
-    for (int i = 0; i < rowLength; i++)
-    {
-        fcwm[i] = P0[i] + P1[i];
-    }
+    // for (int i = 0; i < rowLength; i++)
+    // {
+    //     fcwm[i] = P0[i] + P1[i];
+    // }
 
     // Apply final correction word to target leaf
     int leafStart = (1 << (height)) - 1;
     for (int i = 0; i < dpf_size; i++)
     {
 
-        vector<u128> currLeaf(rowLength);
+        vector<u128> currLeaf;
         // result[i] = VShare[leafStart + i];
-        currLeaf = prgVector(VShare[i+leafStart], rowLength);
+        currLeaf = prgVector(VShare[i + leafStart], rowLength);
+        for (int j = 0; j < rowLength; j++)
+            currLeaf[j] = mod64(currLeaf[j]);
+
         for (int j = 0; j < rowLength; j++)
             if (T[leafStart + i])
             {
-                currLeaf[j] += fcwm[j];
+                // currLeaf[j] += fcwm[j];
+                currLeaf[j] = mod64(currLeaf[j] + fcwm[j]);
             }
 
-        result.push_back(currLeaf);
+        result[i] = currLeaf;
     }
 
     return result;
@@ -243,12 +257,75 @@ void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
     vector<u128> CW = dpf.CW;
     vector<u128> FCW0 = dpf.FCW0;
     vector<u128> FCW1 = dpf.FCW1;
-    vector<u128> M0,M1; // will integrate M later for now using dummy M
+    vector<u128> M0, M1; // will integrate M later for now using dummy M
+    M0 = {32, 5, 7, 15};
+    M1 = {45, 8, 9, 20};
+    int rowLength = M0.size();
+    vector<u128> P0(rowLength), P1(rowLength);
+    for (int i = 0; i < rowLength; i++)
+    {
+        P0[i] = mod64(M0[i] - FCW0[i]);
+        P1[i] = mod64(M1[i] - FCW1[i]);
+    }
+    vector<u128> fcwm(rowLength);
 
+    for (int i = 0; i < rowLength; i++)
+    {
+        // fcwm[i] = P0[i] + P1[i];
+        fcwm[i] = mod64(P0[i] + P1[i]);
+    }
     vector<vector<u128>> eval0, eval1;
-    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0,M0);
-    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1,M1);
+    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0, M0, fcwm);
+    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1, M1, fcwm);
 
+    // multiply by -1;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            eval1[i][j] = -eval1[i][j];
+        }
+    }
+
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            // cout << "in loop i:" << i << " j:" << j << endl;
+            print_uint128(mod64(eval0[i][j]));
+            cout << " ";
+        }
+        cout << endl;
+    }
+    cout << "----------------------------------" << endl;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            print_uint128(mod64(eval1[i][j]));
+            cout << " ";
+        }
+
+        cout << endl;
+    }
+    cout << "Final result after adding both party shares:" << endl;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            print_uint128(mod64(eval0[i][j] + eval1[i][j]));
+            cout << " ";
+        }
+        cout << endl;
+    }
+
+    cout << "expected values at target location:" << endl;
+    for (int i = 0; i < rowLength; i++)
+    {
+        print_uint128(mod64(M0[i] + M1[i]));
+        cout << " ";
+    }
+    cout << endl;
 }
 
 void generateDPF(DpfKey &dpf, int domainSize)
@@ -364,11 +441,22 @@ void generateDPF(DpfKey &dpf, int domainSize)
     int leafStart = (1 << (height)) - 1;
     int targetLeaf = leafStart + dpf.targetLocation;
 
-    int k = dpf.M1.size(); // elements in 1 row in item matrix
+    int k = 4; // elements in 1 row in item matrix
     vector<u128> leafVecAtTarget0 = prgVector(dpf.V0[targetLeaf], k);
     vector<u128> leafVecAtTarget1 = prgVector(dpf.V1[targetLeaf], k);
-    dpf.FCW0 = leafVecAtTarget0;
-    dpf.FCW1 = leafVecAtTarget1;
+    uniform_int_distribution<int64_t> dist(std::numeric_limits<int64_t>::min(),
+                                           std::numeric_limits<int64_t>::max());
+    auto &genValue = rngValue();
+    dpf.FCW1 = prgVector(dist(genValue), k);
+    dpf.FCW0.resize(k);
+    for (int i = 0; i < k; i++)
+    {
+        dpf.FCW0[i] = leafVecAtTarget0[i] - leafVecAtTarget1[i] + dpf.FCW1[i];
+    }
+    for (int i = 0; i < k; i++)
+    {
+        dpf.FCW1[i] = -dpf.FCW1[i];
+    }
 }
 
 int main()
@@ -401,9 +489,8 @@ int main()
         int location;
         int64_t value;
         location = dist(genLocation);
+        cout << "Target location: " << location << endl;
         dpf.targetLocation = location;
-        dpf.M1 = {32, 5, 7, 15};
-        dpf.M2 = {45, 8, 9, 20};
         dpf.V0.resize(totalNodes, (u128)0);
         dpf.V1.resize(totalNodes, (u128)0);
         dpf.T0.resize(totalNodes, false);
@@ -419,7 +506,7 @@ int main()
 
     /*
     run below 2 commands to execute the code
-    g++ gen_queries.cpp -o a -lssl -lcrypto
+    g++ gen_queries_forMatrix.cpp -o a -lssl -lcrypto
     ./a
     */
 }

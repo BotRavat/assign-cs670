@@ -30,7 +30,7 @@ awaitable<bool> receiveSharesFromDealer(
     n = first;
 
     // co_await recv_int(socket, n);
-    // cout << "Party0: received n = " << n << "\n"
+    // cout << "Party1: received n = " << n << "\n"
     //      << flush;
 
     co_await recv_int(socket, k);
