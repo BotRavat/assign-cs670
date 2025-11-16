@@ -1,7 +1,7 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -std=c++20 -O2 -I./src/headerFiles -I./src/generatorFunctions -I./src
-LDFLAGS = -lboost_system -lpthread
+LDFLAGS = -lboost_system -lpthread -lssl -lcrypto
 
 # Source files
 GENERATE_SRC = src/generatorFunctions/saveToFile.cpp \
@@ -57,6 +57,6 @@ run_dealer: dealer
 
 # Clean
 clean:
-	rm -f *.out *.o src/*.o
+	rm -f *.out *.o src/*.o *.txt
 
 .PHONY: all generate dealer party0 party1 run_generate run_dealer clean

@@ -74,7 +74,7 @@ awaitable<void> send_shares_to_party(
         co_await send_int(socket, query_i, "query_i");
 
         // Send DPF data
-       co_await send_u128(socket, rootSeed);
+        co_await send_u128(socket, rootSeed);
 
         co_await sendVectorBool(socket, T);
 
@@ -100,58 +100,65 @@ awaitable<vector<vector<int>>> receiveFinalShares(tcp::socket &socket, const str
 
 // ------------------ Correctness Check Helper ------------------
 
-
-
 // Replace existing function with this version
 void checkCorrectnessAndUpdate(
     int query_i, int query_j, int modValue,
-    const vector<vector<int>>& finalShare0,
-    const vector<vector<int>>& finalShare1,
+    const vector<vector<int>> &finalShare0,
+    const vector<vector<int>> &finalShare1,
     size_t qi)
 {
-    auto mod_norm = [&](long long x)->int {
-        if (modValue == 0) return (int)x; // avoid div zero, though modValue should be > 0
+    auto mod_norm = [&](long long x) -> int
+    {
+        if (modValue == 0)
+            return (int)x; // avoid div zero, though modValue should be > 0
         long long r = x % (long long)modValue;
-        if (r < 0) r += modValue;
+        if (r < 0)
+            r += modValue;
         return (int)r;
     };
 
     // Load full U and V matrices
     vector<vector<int>> U = loadMatrix("U_matrixFull.txt");
     vector<vector<int>> V = loadMatrix("V_matrixFull.txt");
-    if (U.empty() || V.empty()) {
+    if (U.empty() || V.empty())
+    {
         std::cerr << "[Dealer] Failed to load full U or V matrices.\n";
         return;
     }
 
     // Basic index checks
-    if (query_i < 0 || (size_t)query_i >= U.size()) {
+    if (query_i < 0 || (size_t)query_i >= U.size())
+    {
         std::cerr << "[Dealer] query_i out of range: " << query_i << "\n";
         return;
     }
-    if (query_j < 0 || (size_t)query_j >= V.size()) {
+    if (query_j < 0 || (size_t)query_j >= V.size())
+    {
         std::cerr << "[Dealer] query_j out of range: " << query_j << "\n";
         return;
     }
 
     // print (optional) - keep short in production
-    cout << "\nDealer: Checking query #" << (qi+1) << " (" << query_i << "," << query_j << ")\n";
+    cout << "\nDealer: Checking query #" << (qi + 1) << " (" << query_i << "," << query_j << ")\n";
 
     vector<int> ui = U[query_i];
     vector<int> vj = V[query_j];
     int k = (int)ui.size();
 
-    if ((int)vj.size() != k) {
+    if ((int)vj.size() != k)
+    {
         std::cerr << "[Dealer] Dimension mismatch: ui.size()=" << k << " but vj.size()=" << vj.size() << "\n";
         return;
     }
 
     // compute dot product using wider accumulator
     long long dot_acc = 0;
-    for (int t = 0; t < k; ++t) {
+    for (int t = 0; t < k; ++t)
+    {
         dot_acc += (long long)ui[t] * (long long)vj[t];
         // if product might become huge you can periodically reduce:
-        if (llabs(dot_acc) > (1ll<<60)) dot_acc = mod_norm(dot_acc); // keep small
+        if (llabs(dot_acc) > (1ll << 60))
+            dot_acc = mod_norm(dot_acc); // keep small
     }
     int dot = mod_norm(dot_acc);
 
@@ -169,11 +176,13 @@ void checkCorrectnessAndUpdate(
         expected[t] = mod_norm((long long)vj[t] + (long long)u_scaled[t]);
 
     // Validate finalShare sizes
-    if ((size_t)query_j >= finalShare0.size() || (size_t)query_j >= finalShare1.size()) {
+    if ((size_t)query_j >= finalShare0.size() || (size_t)query_j >= finalShare1.size())
+    {
         std::cerr << "[Dealer] Received final shares do not contain index " << query_j << ".\n";
         return;
     }
-    if ((int)finalShare0[query_j].size() != k || (int)finalShare1[query_j].size() != k) {
+    if ((int)finalShare0[query_j].size() != k || (int)finalShare1[query_j].size() != k)
+    {
         std::cerr << "[Dealer] Final share row length mismatch: expected " << k
                   << ", got " << finalShare0[query_j].size()
                   << " and " << finalShare1[query_j].size() << "\n";
@@ -187,15 +196,22 @@ void checkCorrectnessAndUpdate(
 
     // Print comparison and basic check
     cout << "Reconstructed (from MPC): ";
-    for (int val : reconstructed) cout << val << " ";
+    for (int val : reconstructed)
+        cout << val << " ";
     cout << "\nExpected (direct computation): ";
-    for (int val : expected) cout << val << " ";
+    for (int val : expected)
+        cout << val << " ";
     cout << "\n";
 
     // quick correctness flag
     bool ok = true;
-    for (int t = 0; t < k; ++t) {
-        if (reconstructed[t] != expected[t]) { ok = false; break; }
+    for (int t = 0; t < k; ++t)
+    {
+        if (reconstructed[t] != expected[t])
+        {
+            ok = false;
+            break;
+        }
     }
     if (ok)
         cout << "Dealer: CORRECT for query (" << query_i << "," << query_j << ").\n";
@@ -207,8 +223,6 @@ void checkCorrectnessAndUpdate(
     // ofs << "Query (" << query_i << "," << query_j << ") result: " << (ok ? "OK" : "FAIL") << "\n";
     // ofs.close();
 }
-
-
 
 awaitable<void> dealer_main(boost::asio::io_context &io,
                             const vector<pair<int, int>> &queries,
@@ -307,7 +321,7 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
     co_return;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     DpfKey dpf;
     try
@@ -328,18 +342,29 @@ int main()
         m = U0.size();
         k = U0[0].size();
         n = V0.size();
+        int numQueries = getenv("NUM_QUERIES") ? atoi(getenv("NUM_QUERIES")) : 2;
+        if (argc >= 2)
+        {
+            numQueries = atoi(argv[1]);
+        }
 
-        int numQueries;
+        cout << "Number of queries: " << numQueries << "\n";
+
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist_i(0, m - 1);
+        std::uniform_int_distribution<> dist_j(0, n - 1);
+
         vector<pair<int, int>> queries;
-        cout << "Enter number of queries: ";
-        cin >> numQueries;
-        cout << "Enter each query (i j): \n";
         for (int q = 0; q < numQueries; ++q)
         {
-            int i, j;
-            cin >> i >> j;
+            int i = dist_i(gen);
+            int j = dist_j(gen);
             queries.emplace_back(i, j);
         }
+        cout << "Generated Queries:\n";
+        for (auto &[i, j] : queries)
+            cout << "(" << i << "," << j << ")\n";
 
         // generateDPF()
         boost::asio::io_context io;

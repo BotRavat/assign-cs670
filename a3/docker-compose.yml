@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  generate:
+    build: .
+    container_name: generate_container
+    environment:
+      USERS: ${USERS}
+      ITEMS: ${ITEMS}
+      FEATURES: ${FEATURES}
+    command: ["./generate.out"]
+    tty: true
+
+  dealer:
+    build: .
+    container_name: dealer_container
+    depends_on:
+      generate:
+        condition: service_completed_successfully
+    environment:
+      NUM_QUERIES: ${NUM_QUERIES}
+    command: ["./dealer.out"]
+    tty: true
+
+  party0:
+    build: .
+    container_name: party0_container
+    depends_on:
+      dealer:
+        condition: service_healthy
+    command: ["./party0.out"]
+    tty: true
+
+  party1:
+    build: .
+    container_name: party1_container
+    depends_on:
+      party0:
+        condition: service_healthy
+    command: ["./party1.out"]
+    tty: true
