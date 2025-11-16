@@ -47,6 +47,7 @@ awaitable<void> send_shares_to_party(
 {
     try
     {
+        cout<<"Dealer: sending shares and triplets to a connected party.\n";
         co_await send_int(socket, n, "n");
         co_await send_int(socket, k, "k");
         co_await send_int(socket, modValue, "modValue");
@@ -118,8 +119,8 @@ void checkCorrectnessAndUpdate(
     };
 
     // Load full U and V matrices
-    vector<vector<int>> U = loadMatrix("U_matrixFull.txt");
-    vector<vector<int>> V = loadMatrix("V_matrixFull.txt");
+    vector<vector<int>> U = loadMatrix("/app/matrices/U_matrixFull.txt");
+    vector<vector<int>> V = loadMatrix("/app/matrices/V_matrixFull.txt");
     if (U.empty() || V.empty())
     {
         std::cerr << "[Dealer] Failed to load full U or V matrices.\n";
@@ -224,6 +225,10 @@ void checkCorrectnessAndUpdate(
     // ofs.close();
 }
 
+
+
+
+
 awaitable<void> dealer_main(boost::asio::io_context &io,
                             const vector<pair<int, int>> &queries,
                             int n, int k, int modValue)
@@ -239,76 +244,163 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
     co_await acceptor.async_accept(socket_p1, use_awaitable);
     cout << "Dealer: P1 connected.\n";
 
-    // Process all queries
+    // ------------------ PROCESS ALL QUERIES ------------------
     for (size_t qi = 0; qi < queries.size(); qi++)
     {
         auto [query_i, query_j] = queries[qi];
         cout << "\n=== Processing Query " << qi + 1
              << " (" << query_i << "," << query_j << ") ===\n";
 
-        // Generate data for this query (your function)
-        auto svTriplet = generateScalarandVectorTriplet(k, modValue);
+        // ----------- GENERATE ALL SHARE MATERIAL FOR THIS QUERY -----------
+        auto svTriplet       = generateScalarandVectorTriplet(k, modValue);
         auto svTripletShares = sAndVectorTripletShares(svTriplet, modValue);
-        auto vTriplet = generateVectorTriplet(k, modValue);
+
+        auto vTriplet        = generateVectorTriplet(k, modValue);
         auto vTripletSharesS = vTripletShares(vTriplet, modValue);
-        auto oneShares = sharesOfOne(modValue);
+
+        auto oneShares       = sharesOfOne(modValue);
 
         vector<int> e(n, 0);
         if (query_j >= 0 && query_j < n)
             e[query_j] = 1;
-        auto eShares = sharesOfe(e, modValue);
-        auto mvTriplet = generateMTriplet(n, k, modValue);
+
+        auto eShares         = sharesOfe(e, modValue);
+
+        auto mvTriplet       = generateMTriplet(n, k, modValue);
         auto mvTripletShares = genMShare(mvTriplet, modValue);
 
-        // dpf generation
+        // ------------------ DPF GENERATION ------------------
         DpfKey dpf;
         dpf.targetLocation = query_j;
-        int dpf_size = n;
-        int totalNodes = 2 * dpf_size - 1;
+
+        int dpf_size     = n;
+        int totalNodes   = 2 * dpf_size - 1;
+        int height       = (int)ceil(log2(dpf_size));
+
         dpf.V0.resize(totalNodes, (u128)0);
         dpf.V1.resize(totalNodes, (u128)0);
         dpf.T0.resize(totalNodes, false);
         dpf.T1.resize(totalNodes, false);
-        int height = (int)(ceil(log2(dpf_size)));
         dpf.CW.resize(height + 1, (u128)0);
         dpf.FCW0.resize(k, (u128)0);
         dpf.FCW1.resize(k, (u128)0);
+
         generateDPF(dpf, dpf_size);
+
+        // -------- DPF PARTIES' KEYS ----------
         u128 rootSeed = dpf.V0[0];
-        vector<bool> T0 = dpf.T0;
-        vector<bool> T1 = dpf.T1;
-        vector<u128> CW = dpf.CW;
-        vector<u128> FCW0 = dpf.FCW0;
-        vector<u128> FCW1 = dpf.FCW1;
 
-        // Send to both parties in parallel
-        co_spawn(io, [&]() -> awaitable<void>
+        vector<bool>  T0   = dpf.T0;
+        vector<bool>  T1   = dpf.T1;
+
+        vector<u128> CW    = dpf.CW;
+        vector<u128> FCW0  = dpf.FCW0;
+        vector<u128> FCW1  = dpf.FCW1;
+
+        // ====================================================================
+        // ✔ FIX #1 — CAPTURE DATA BY VALUE INSIDE ASYNC LAMBDAS
+        // ====================================================================
+
+        // Copy P0’s objects locally so lambdas get safe copies
+        auto AShare0_copy   = svTripletShares.AShare0;
+        auto b0_copy        = svTripletShares.b0;
+        auto CShare0_copy   = svTripletShares.CShare0;
+
+        auto vectorA0_copy  = vTripletSharesS.vectorA0;
+        auto vectorB0_copy  = vTripletSharesS.vectorB0;
+        auto scalarC0_copy  = vTripletSharesS.scalarC0;
+
+        auto e0_copy        = eShares.eshare0;
+
+        auto AV0_copy       = mvTripletShares.AVShare0;
+        auto BM0_copy       = mvTripletShares.BMShare0;
+        auto CV0_copy       = mvTripletShares.CVShare0;
+
+        int one0_copy       = oneShares.first;
+
+
+        // Copy P1’s objects
+        auto AShare1_copy   = svTripletShares.AShare1;
+        auto b1_copy        = svTripletShares.b1;
+        auto CShare1_copy   = svTripletShares.CShare1;
+
+        auto vectorA1_copy  = vTripletSharesS.vectorA1;
+        auto vectorB1_copy  = vTripletSharesS.vectorB1;
+        auto scalarC1_copy  = vTripletSharesS.scalarC1;
+
+        auto e1_copy        = eShares.eshare1;
+
+        auto AV1_copy       = mvTripletShares.AVShare1;
+        auto BM1_copy       = mvTripletShares.BMShare1;
+        auto CV1_copy       = mvTripletShares.CVShare1;
+
+        int one1_copy       = oneShares.second;
+
+        auto T0_copy        = T0;
+        auto T1_copy        = T1;
+        auto CW_copy        = CW;
+        auto FCW0_copy      = FCW0;
+        auto FCW1_copy      = FCW1;
+
+        // ====================================================================
+        // ✔ FIX #2 — START PARALLEL SENDS WITH SAFE COPIES
+        // ====================================================================
+
+        cout << "Dealer: sending shares to P0 & P1...\n";
+
+        co_spawn(io,
+                 [=, &socket_p0]() mutable -> awaitable<void>
                  {
-            co_await send_shares_to_party(socket_p0, n, k, modValue,
-                                          svTripletShares.AShare0, svTripletShares.b0, svTripletShares.CShare0,
-                                          vTripletSharesS.vectorA0, vTripletSharesS.vectorB0, vTripletSharesS.scalarC0,
-                                          eShares.eshare0,
-                                          mvTripletShares.AVShare0, mvTripletShares.BMShare0, mvTripletShares.CVShare0,
-                                          oneShares.first, query_i,rootSeed,T0,CW,FCW0);
-            co_return; }(), detached);
+                     co_await send_shares_to_party(
+                         socket_p0,
+                         n, k, modValue,
+                         AShare0_copy, b0_copy, CShare0_copy,
+                         vectorA0_copy, vectorB0_copy, scalarC0_copy,
+                         e0_copy,
+                         AV0_copy, BM0_copy, CV0_copy,
+                         one0_copy, query_i,
+                         rootSeed,
+                         T0_copy,
+                         CW_copy,
+                         FCW0_copy
+                     );
+                     co_return;
+                 },
+                 detached);
 
-        co_spawn(io, [&]() -> awaitable<void>
+        co_spawn(io,
+                 [=, &socket_p1]() mutable -> awaitable<void>
                  {
-            co_await send_shares_to_party(socket_p1, n, k, modValue,
-                                          svTripletShares.AShare1, svTripletShares.b1, svTripletShares.CShare1,
-                                          vTripletSharesS.vectorA1, vTripletSharesS.vectorB1, vTripletSharesS.scalarC1,
-                                          eShares.eshare1,
-                                          mvTripletShares.AVShare1, mvTripletShares.BMShare1, mvTripletShares.CVShare1,
-                                          oneShares.second, query_i,rootSeed,T1,CW,FCW1);
-            co_return; }(), detached);
+                     co_await send_shares_to_party(
+                         socket_p1,
+                         n, k, modValue,
+                         AShare1_copy, b1_copy, CShare1_copy,
+                         vectorA1_copy, vectorB1_copy, scalarC1_copy,
+                         e1_copy,
+                         AV1_copy, BM1_copy, CV1_copy,
+                         one1_copy, query_i,
+                         rootSeed,
+                         T1_copy,
+                         CW_copy,
+                         FCW1_copy
+                     );
+                     co_return;
+                 },
+                 detached);
 
-        // Wait for both parties to return final shares
+        // ====================================================================
+        // ✔ FIX #3 — WAIT FOR FINAL SHARES FROM BOTH PARTIES
+        // ====================================================================
+
         vector<vector<int>> finalShare0 = co_await receiveFinalShares(socket_p0, "Party0");
         vector<vector<int>> finalShare1 = co_await receiveFinalShares(socket_p1, "Party1");
+
         checkCorrectnessAndUpdate(query_i, query_j, modValue, finalShare0, finalShare1, qi);
     }
 
-    // === Send "DONE" message to both parties ===
+    // ========================================================================
+    // SEND DONE FLAG
+    // ========================================================================
     int doneFlag = -1;
     co_await send_int(socket_p0, doneFlag, "doneFlag");
     co_await send_int(socket_p1, doneFlag, "doneFlag");
@@ -317,9 +409,12 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
 
     socket_p0.close();
     socket_p1.close();
+
     cout << "Dealer: Closed all connections.\n";
     co_return;
 }
+
+
 
 int main(int argc, char *argv[])
 {
@@ -328,10 +423,10 @@ int main(int argc, char *argv[])
     {
         int modValue = 64;
         int m, n, k;
-        vector<vector<int>> U0 = loadMatrix("U_ShareMatrix0.txt");
-        vector<vector<int>> U1 = loadMatrix("U_ShareMatrix1.txt");
-        vector<vector<int>> V0 = loadMatrix("V_ShareMatrix0.txt");
-        vector<vector<int>> V1 = loadMatrix("V_ShareMatrix1.txt");
+        vector<vector<int>> U0 = loadMatrix("/app/matrices/U_ShareMatrix0.txt");
+        vector<vector<int>> U1 = loadMatrix("/app/matrices/U_ShareMatrix1.txt");
+        vector<vector<int>> V0 = loadMatrix("/app/matrices/V_ShareMatrix0.txt");
+        vector<vector<int>> V1 = loadMatrix("/app/matrices/V_ShareMatrix1.txt");
 
         if (U0.empty() || V0.empty())
         {

@@ -78,47 +78,54 @@ awaitable<vector<int>> receiveFinalShares(tcp::socket &socket, const string &nam
 
 void checkCorrectnessAndUpdate(
     int query_i, int query_j, int modValue,
-    vector<int> finalShare0, vector<int> finalShare1,size_t qi)
+    vector<int> finalShare0, vector<int> finalShare1, size_t qi)
 {
 
     // Load full U and V matrices
     vector<vector<int>> U = loadMatrix("U_matrixFull.txt");
     vector<vector<int>> V = loadMatrix("V_matrixFull.txt");
 
-
-    cout<<"Full User matrix is :\n";
-    for(size_t i=0;i<U.size();i++){
-        for(size_t j=0;j<U[0].size();j++){
-            cout<<U[i][j]<<" ";
+    cout << "Full User matrix is :\n";
+    for (size_t i = 0; i < U.size(); i++)
+    {
+        for (size_t j = 0; j < U[0].size(); j++)
+        {
+            cout << U[i][j] << " ";
         }
-        cout<<"\n";
+        cout << "\n";
     }
 
-    cout<<"checking User matrix shares :\n";
+    cout << "checking User matrix shares :\n";
     vector<vector<int>> U0 = loadMatrix("U_ShareMatrix0.txt");
     vector<vector<int>> U1 = loadMatrix("U_ShareMatrix1.txt");
-    for(size_t i=0;i<U0.size();i++){
-        for(size_t j=0;j<U0[0].size();j++){
-            cout<<(U0[i][j]+U1[i][j])%modValue<<" ";
+    for (size_t i = 0; i < U0.size(); i++)
+    {
+        for (size_t j = 0; j < U0[0].size(); j++)
+        {
+            cout << (U0[i][j] + U1[i][j]) % modValue << " ";
         }
-        cout<<"\n";
+        cout << "\n";
     }
-    cout<<"Full Item matrix is :\n";
-    for(size_t i=0;i<V.size();i++){
-        for(size_t j=0;j<V[0].size();j++){
-            cout<<V[i][j]<<" ";
+    cout << "Full Item matrix is :\n";
+    for (size_t i = 0; i < V.size(); i++)
+    {
+        for (size_t j = 0; j < V[0].size(); j++)
+        {
+            cout << V[i][j] << " ";
         }
-        cout<<"\n";
+        cout << "\n";
     }
 
-    cout<<"checking Item matrix shares :\n";
+    cout << "checking Item matrix shares :\n";
     vector<vector<int>> V0 = loadMatrix("V_ShareMatrix0.txt");
     vector<vector<int>> V1 = loadMatrix("V_ShareMatrix1.txt");
-    for(size_t i=0;i<V0.size();i++){
-        for(size_t j=0;j<V0[0].size();j++){
-            cout<<(V0[i][j]+V1[i][j])%modValue<<" ";
+    for (size_t i = 0; i < V0.size(); i++)
+    {
+        for (size_t j = 0; j < V0[0].size(); j++)
+        {
+            cout << (V0[i][j] + V1[i][j]) % modValue << " ";
         }
-        cout<<"\n";
+        cout << "\n";
     }
 
     if (U.empty() || V.empty())
@@ -155,23 +162,25 @@ void checkCorrectnessAndUpdate(
     for (int i = 0; i < k; i++)
         reconstructed[i] = (finalShare0[i] + finalShare1[i]) % modValue;
 
-        // --- Compare and display ---
-cout << "\nDealer: Checking correctness for query (" << query_i << "," << query_j << ")\n";
-cout << "Reconstructed (from MPC): ";
-for (int val : reconstructed) cout << val << " ";
-cout << "\nExpected (direct computation): ";
-for (int val : ui) cout << val << " ";
-cout << "\n";
+    // --- Compare and display ---
+    cout << "\nDealer: Checking correctness for query (" << query_i << "," << query_j << ")\n";
+    cout << "Reconstructed (from MPC): ";
+    for (int val : reconstructed)
+        cout << val << " ";
+    cout << "\nExpected (direct computation): ";
+    for (int val : ui)
+        cout << val << " ";
+    cout << "\n";
 
-//  write both to file
-// ofstream checkFile("correctness_check.txt", ios::app);
-// checkFile << "Query (" << query_i << "," << query_j << ")\n";
-// checkFile << "MPC Result: ";
-// for (int val : reconstructed) checkFile << val << " ";
-// checkFile << "\nExpected:   ";
-// for (int val : expected) checkFile << val << " ";
-// checkFile << "\n\n";
-// checkFile.close();
+    //  write both to file
+    // ofstream checkFile("correctness_check.txt", ios::app);
+    // checkFile << "Query (" << query_i << "," << query_j << ")\n";
+    // checkFile << "MPC Result: ";
+    // for (int val : reconstructed) checkFile << val << " ";
+    // checkFile << "\nExpected:   ";
+    // for (int val : expected) checkFile << val << " ";
+    // checkFile << "\n\n";
+    // checkFile.close();
 }
 
 awaitable<void> dealer_main(boost::asio::io_context &io,
@@ -234,7 +243,7 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
         // Wait for both parties to return final shares
         vector<int> finalShare0 = co_await receiveFinalShares(socket_p0, "Party0");
         vector<int> finalShare1 = co_await receiveFinalShares(socket_p1, "Party1");
-        checkCorrectnessAndUpdate(query_i, query_j, modValue, finalShare0, finalShare1,qi);
+        checkCorrectnessAndUpdate(query_i, query_j, modValue, finalShare0, finalShare1, qi);
     }
 
     // === Send "DONE" message to both parties ===
@@ -275,13 +284,21 @@ int main()
         vector<pair<int, int>> queries;
         cout << "Enter number of queries: ";
         cin >> numQueries;
-        cout << "Enter each query (i j): \n";
+        
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist_i(0, m - 1);
+        std::uniform_int_distribution<> dist_j(0, n - 1);
+
         for (int q = 0; q < numQueries; ++q)
         {
-            int i, j;
-            cin >> i >> j;
+            int i = dist_i(gen);
+            int j = dist_j(gen);
             queries.emplace_back(i, j);
         }
+        cout << "Generated Queries:\n";
+        for (auto &[i, j] : queries)
+            cout << "(" << i << "," << j << ")\n";
 
         boost::asio::io_context io;
         co_spawn(io, dealer_main(io, queries, n, k, modValue), detached);

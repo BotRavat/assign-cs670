@@ -21,7 +21,7 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA1, vector<int> &vectorB1, int &scalarC1,
     vector<int> &AShare1, int &bShare1, vector<int> &CShare1,
     vector<int> &eShare1,
-    int &one1, int &query_i, u128 rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
+    int &one1, int &query_i, u128 &rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
 
 {
 
@@ -46,6 +46,7 @@ awaitable<bool> receiveSharesFromDealer(
 
     AVShare1.resize(n);
     BMShare1.resize(n, vector<int>(k));
+    CVShare1.resize(k);
 
     vectorA1.resize(k);
     vectorB1.resize(k);
@@ -129,12 +130,12 @@ awaitable<void> party1(boost::asio::io_context &io_context)
         // connect to dealer
         tcp::socket socket(io_context);
         tcp::resolver resolver(io_context);
-        auto endpoints = resolver.resolve("127.0.0.1", "9002");
+        auto endpoints = resolver.resolve("dealer", "9002");
         co_await boost::asio::async_connect(socket, endpoints, use_awaitable);
         cout << "Party1: connected to dealer\n";
 
         tcp::socket peer_socket(io_context);
-        auto peer_endpoints = resolver.resolve("127.0.0.1", "9003"); // listening
+        auto peer_endpoints = resolver.resolve("party0", "9003"); // listening
         co_await async_connect(peer_socket, peer_endpoints, use_awaitable);
         // boost::asio::connect(peer_socket, peer_endpoints);
         cout << "Party1: connected to Party0\n";
@@ -166,6 +167,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
         while (true)
         {
 
+            cout<<"Party1: waiting to receive shares from dealer...\n"; 
             // receive all shares of 1 query from dealer
             bool has_query = co_await receiveSharesFromDealer(
                 socket, n, k, modValue,
@@ -185,8 +187,8 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             int i = query_i;
 
             // Load party1 shares
-            vector<vector<int>> U1 = loadMatrix("U_ShareMatrix1.txt");
-            vector<vector<int>> V1 = loadMatrix("V_ShareMatrix1.txt");
+            vector<vector<int>> U1 = loadMatrix("/app/matrices/U_ShareMatrix1.txt");
+            vector<vector<int>> V1 = loadMatrix("/app/matrices/V_ShareMatrix1.txt");
 
             if (U1.empty() || V1.empty())
             {

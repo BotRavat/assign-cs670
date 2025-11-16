@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   generate:
     build: .
@@ -10,32 +8,41 @@ services:
       FEATURES: ${FEATURES}
     command: ["./generate.out"]
     tty: true
+    volumes:
+      - matrices_data:/app/matrices
+    # Removed healthcheck and depends_on condition
 
   dealer:
     build: .
     container_name: dealer_container
     depends_on:
-      generate:
-        condition: service_completed_successfully
+      - generate
     environment:
       NUM_QUERIES: ${NUM_QUERIES}
     command: ["./dealer.out"]
     tty: true
+    volumes:
+      - matrices_data:/app/matrices
 
   party0:
     build: .
     container_name: party0_container
     depends_on:
-      dealer:
-        condition: service_healthy
+      - dealer
     command: ["./party0.out"]
     tty: true
+    volumes:
+      - matrices_data:/app/matrices
 
   party1:
     build: .
     container_name: party1_container
     depends_on:
-      party0:
-        condition: service_healthy
+      - party0
     command: ["./party1.out"]
     tty: true
+    volumes:
+      - matrices_data:/app/matrices
+
+volumes:
+  matrices_data:

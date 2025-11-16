@@ -21,7 +21,7 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA0, vector<int> &vectorB0, int &scalarC0,
     vector<int> &AShare0, int &bShare0, vector<int> &CShare0,
     vector<int> &eShare0,
-    int &one0, int &query_i, u128 rootSeed, vector<bool> &T0, vector<u128> &CW, vector<u128> &FCW0)
+    int &one0, int &query_i, u128 &rootSeed, vector<bool> &T0, vector<u128> &CW, vector<u128> &FCW0)
 {
 
     int first;
@@ -45,6 +45,7 @@ awaitable<bool> receiveSharesFromDealer(
 
     AVShare0.resize(n);
     BMShare0.resize(n, vector<int>(k));
+    CVShare0.resize(k);
 
     vectorA0.resize(k);
     vectorB0.resize(k);
@@ -123,18 +124,20 @@ awaitable<void> party0(boost::asio::io_context &io_context)
     try
     {
         // boost::asio::io_context io_context;
-        cout << "hello from inside fun party0";
+        
         // connect to dealer
         tcp::socket socket(io_context);
         tcp::resolver resolver(io_context);
-        auto endpoints = resolver.resolve("127.0.0.1", "9002");
+
+        tcp::socket peer_socket(io_context);
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 9003));
+
+        auto endpoints = resolver.resolve("dealer", "9002");
         co_await boost::asio::async_connect(socket, endpoints, use_awaitable);
         // boost::asio::connect(socket, endpoints);
 
         cout << "Party0: connected to dealer\n";
 
-        tcp::socket peer_socket(io_context);
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 9003));
 
         cout << "Party0: waiting for Party1 to connect...\n";
         co_await acceptor.async_accept(peer_socket, use_awaitable);
@@ -168,7 +171,7 @@ awaitable<void> party0(boost::asio::io_context &io_context)
         while (true)
         {
             // receive all shares of 1 query from dealer
-
+            cout<<"Party0: waiting to receive shares from dealer...\n";
             bool has_query = co_await receiveSharesFromDealer(
                 socket, n, k, modValue,
                 AVShare0, BMShare0, CVShare0,
@@ -187,8 +190,8 @@ awaitable<void> party0(boost::asio::io_context &io_context)
             int i = query_i;
 
             // Load party0 shares
-            vector<vector<int>> U0 = loadMatrix("U_ShareMatrix0.txt");
-            vector<vector<int>> V0 = loadMatrix("V_ShareMatrix0.txt");
+            vector<vector<int>> U0 = loadMatrix("/app/matrices/U_ShareMatrix0.txt");
+            vector<vector<int>> V0 = loadMatrix("/app/matrices/V_ShareMatrix0.txt");
 
             if (U0.empty() || V0.empty())
             {
@@ -394,7 +397,6 @@ awaitable<void> party0(boost::asio::io_context &io_context)
 
 int main()
 {
-    cout << "hello from  party0 from main";
 
     try
     {
