@@ -79,6 +79,115 @@ inline awaitable<void> recvMatrix(tcp::socket& socket, std::vector<std::vector<i
 }
 
 
+// for u128
+
+using u128 = unsigned __int128;
+
+inline std::array<uint8_t,16> encode_u128(u128 v) {
+    std::array<uint8_t,16> b{};
+    for (int i = 15; i >= 0; --i) {
+        b[i] = static_cast<uint8_t>(v & 0xFF);
+        v >>= 8;
+    }
+    return b;
+}
+
+inline u128 decode_u128(const std::array<uint8_t,16>& b) {
+    u128 v = 0;
+    for (int i = 0; i < 16; ++i) {
+        v = (v << 8) | (u128)b[i];
+    }
+    return v;
+}
+
+inline awaitable<void> send_u128(tcp::socket& socket, u128 x) {
+    auto buf = encode_u128(x);
+    co_await boost::asio::async_write(socket,
+        boost::asio::buffer(buf.data(), buf.size()),
+        boost::asio::use_awaitable);
+}
+
+inline awaitable<void> recv_u128(tcp::socket& socket, u128 &out) {
+    std::array<uint8_t,16> buf;
+    co_await boost::asio::async_read(socket,
+        boost::asio::buffer(buf.data(), buf.size()),
+        boost::asio::use_awaitable);
+    out = decode_u128(buf);
+}
+
+inline awaitable<void> sendVector_u128(tcp::socket& socket,
+                                       const std::vector<u128>& vec) {
+    uint64_t n = vec.size();
+    co_await boost::asio::async_write(socket, boost::asio::buffer(&n, sizeof(n)),
+                                      boost::asio::use_awaitable);
+
+    for (uint64_t i = 0; i < n; ++i) {
+        auto b = encode_u128(vec[i]);
+        co_await boost::asio::async_write(socket,
+            boost::asio::buffer(b.data(), b.size()),
+            boost::asio::use_awaitable);
+    }
+}
+
+inline awaitable<void> recvVector_u128(tcp::socket& socket,
+                                       std::vector<u128>& vec) {
+    uint64_t n;
+    co_await boost::asio::async_read(socket,
+        boost::asio::buffer(&n, sizeof(n)),
+        boost::asio::use_awaitable);
+
+    vec.resize(n);
+    for (uint64_t i = 0; i < n; ++i) {
+        std::array<uint8_t,16> b;
+        co_await boost::asio::async_read(socket,
+            boost::asio::buffer(b.data(), b.size()),
+            boost::asio::use_awaitable);
+        vec[i] = decode_u128(b);
+    }
+}
+
+inline awaitable<void> sendVectorBool(tcp::socket& socket,
+                                      const std::vector<bool>& vec) {
+    uint64_t n = vec.size();
+    co_await boost::asio::async_write(socket, boost::asio::buffer(&n, sizeof(n)),
+                                      boost::asio::use_awaitable);
+
+    if (n == 0) co_return;
+
+    size_t nb = (n + 7) / 8;
+    std::vector<uint8_t> out(nb, 0);
+
+    for (uint64_t i = 0; i < n; ++i)
+        if (vec[i])
+            out[i >> 3] |= (1u << (i & 7));
+
+    co_await boost::asio::async_write(socket,
+        boost::asio::buffer(out.data(), out.size()),
+        boost::asio::use_awaitable);
+}
+
+inline awaitable<void> recvVectorBool(tcp::socket& socket,
+                                      std::vector<bool>& vec) {
+    uint64_t n;
+    co_await boost::asio::async_read(socket,
+        boost::asio::buffer(&n, sizeof(n)),
+        boost::asio::use_awaitable);
+
+    vec.assign(n, false);
+
+    if (n == 0) co_return;
+
+    size_t nb = (n + 7) / 8;
+    std::vector<uint8_t> in(nb);
+
+    co_await boost::asio::async_read(socket,
+        boost::asio::buffer(in.data(), in.size()),
+        boost::asio::use_awaitable);
+
+    for (uint64_t i = 0; i < n; ++i)
+        vec[i] = (in[i >> 3] >> (i & 7)) & 1;
+}
+
 
 
 vector<vector<int>> loadMatrix(const string &filename)

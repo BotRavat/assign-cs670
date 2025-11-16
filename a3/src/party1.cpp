@@ -21,7 +21,7 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA1, vector<int> &vectorB1, int &scalarC1,
     vector<int> &AShare1, int &bShare1, vector<int> &CShare1,
     vector<int> &eShare1,
-    int &one0, int &query_i, u128 rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
+    int &one1, int &query_i, u128 rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
 
 {
 
@@ -92,28 +92,32 @@ awaitable<bool> receiveSharesFromDealer(
     cout << "Party0: received one1 = " << one1 << "\n"
          << flush;
     co_await recv_int(socket, query_i);
-    cout << "Party0: received query_i = " << query_i << "\n"
+    cout << "Party1: received query_i = " << query_i << "\n"
          << flush;
 
-    co_await recvVector(socket, T1);
-    cout << "Party1: received T0 size = " << T1.size() << "\n"
+    co_await recv_u128(socket, rootSeed);
+    cout << "Party1: received rootSeed\n"
          << flush;
 
-    co_await recvVector(socket, CW);
+    co_await recvVectorBool(socket, T1);
+    cout << "Party1: received T1 size = " << T1.size() << "\n"
+         << flush;
+
+    co_await recvVector_u128(socket, CW);
     cout << "Party1: received CW size = " << CW.size() << "\n"
          << flush;
-    co_await recvVector(socket, FCW1);
+    co_await recvVector_u128(socket, FCW1);
     cout << "Party1: received FCW size = " << FCW1.size() << "\n"
          << flush;
 
     co_return true;
 }
 
-awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<int> &U0i)
+awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<vector<int>> &VM)
 {
-    co_await sendVector(socket, U0i);
+    co_await sendMatrix(socket, VM);
 
-    cout << "Party: sent final user vector share to dealer\n";
+    cout << "Party: sent final item matrix share to dealer\n";
     co_return;
 }
 
@@ -305,7 +309,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             sub1 = sub1 < 0 ? sub1 + modValue : sub1;
             cout << "1- dot is : " << sub1 << endl;
 
-            // to compute vj(1- <ui,vj)
+            // to compute ui(1- <ui,vj)
 
             // get beaver triplet of scalar and vector
 
@@ -315,7 +319,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             vector<int> blindSV1(k);
             for (size_t it = 0; it < k; it++)
             {
-                blindSV1[it] = (V1j[it] + AShare1[it]) % modValue;
+                blindSV1[it] = (U1i[it] + AShare1[it]) % modValue;
             }
             int blind_scalar1 = (sub1 + bShare1) % modValue;
 
@@ -350,21 +354,23 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             }
             cout << endl;
 
-            vector<u128> M0;
-            M0.reserve(mul1.size());
+            vector<u128> M1;
+            M1.reserve(mul1.size());
             for (int v : mul1)
             {
-                M0.push_back(static_cast<u128>(v));
+                v = v % modValue;
+                v = v < 0 ? v + modValue : v;
+                M1.push_back(static_cast<u128>(v));
             }
 
-            int dpf_size = pow(2, k);
-            vector<vector<u128>> result = evalDPF(peer_socket, rootSeed, T1, CW, dpf_size, FCW1, M1);
+            int dpf_size = n;
+            vector<vector<int>> result = co_await evalDPF(peer_socket, rootSeed, T1, CW, dpf_size, FCW1, M1);
 
             cout << "Party0: updated user vector share U0i\n";
             // saveMatrix("U_ShareMatrix0.txt", U1);
             // sent share back to client
 
-            co_await sendFinalSharesToDealer(socket, U1i);
+            co_await sendFinalSharesToDealer(socket, result);
         }
         socket.close();
         peer_socket.close();

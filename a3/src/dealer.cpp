@@ -7,6 +7,7 @@
 #include <boost/asio.hpp>
 #include "../headerFiles/gen_queries.h"
 #include "../common.hpp"
+#include "dpf.hpp"
 
 using boost::asio::awaitable;
 using boost::asio::co_spawn;
@@ -16,18 +17,15 @@ using boost::asio::ip::tcp;
 using namespace std;
 using u128 = unsigned __int128;
 
-struct DpfKey
-{
-    int targetLocation;
-    vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
-    vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
-    vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
-    vector<u128> FCW0;   // final correction word at leaf level for party 0
-    vector<u128> FCW1;   // final correction word at leaf level for party 1
-};
-
-
-
+// struct DpfKey
+// {
+//     int targetLocation;
+//     vector<u128> V0, V1; // vector containing nodes of tree for respective tree, size= total number of nodes
+//     vector<bool> T0, T1; // vector containing flag bits for each node, size= total number of nodes
+//     vector<u128> CW;     // vector containing correction word per level, size= height of tree+1
+//     vector<u128> FCW0;   // final correction word at leaf level for party 0
+//     vector<u128> FCW1;   // final correction word at leaf level for party 1
+// };
 
 awaitable<void> send_shares_to_party(
     tcp::socket &socket,
@@ -41,7 +39,11 @@ awaitable<void> send_shares_to_party(
     vector<int> AV,
     vector<vector<int>> BM,
     vector<int> CV,
-    int oneShare, int query_i)
+    int oneShare, int query_i,
+    u128 rootSeed,
+    const vector<bool> &T,
+    const vector<u128> &CW,
+    const vector<u128> &FCW)
 {
     try
     {
@@ -71,6 +73,14 @@ awaitable<void> send_shares_to_party(
         co_await send_int(socket, oneShare, "oneShare");
         co_await send_int(socket, query_i, "query_i");
 
+        // Send DPF data
+       co_await send_u128(socket, rootSeed);
+
+        co_await sendVectorBool(socket, T);
+
+        co_await sendVector_u128(socket, CW);
+        co_await sendVector_u128(socket, FCW);
+
         cout << "Dealer: sent shares and triplets to a connected party.\n";
     }
     catch (exception &e)
@@ -80,122 +90,125 @@ awaitable<void> send_shares_to_party(
     co_return;
 }
 
-awaitable<vector<int>> receiveFinalShares(tcp::socket &socket, const string &name)
+awaitable<vector<vector<int>>> receiveFinalShares(tcp::socket &socket, const string &name)
 {
-    vector<int> finalShare;
-    co_await recvVector(socket, finalShare);
+    vector<vector<int>> finalShare;
+    co_await recvMatrix(socket, finalShare);
     cout << "\n Dealer: received final share from a party: " << name << "\n";
     co_return finalShare;
 }
 
 // ------------------ Correctness Check Helper ------------------
 
+
+
+// Replace existing function with this version
 void checkCorrectnessAndUpdate(
     int query_i, int query_j, int modValue,
-    vector<int> finalShare0, vector<int> finalShare1, size_t qi)
+    const vector<vector<int>>& finalShare0,
+    const vector<vector<int>>& finalShare1,
+    size_t qi)
 {
+    auto mod_norm = [&](long long x)->int {
+        if (modValue == 0) return (int)x; // avoid div zero, though modValue should be > 0
+        long long r = x % (long long)modValue;
+        if (r < 0) r += modValue;
+        return (int)r;
+    };
 
     // Load full U and V matrices
     vector<vector<int>> U = loadMatrix("U_matrixFull.txt");
     vector<vector<int>> V = loadMatrix("V_matrixFull.txt");
-
-    cout << "Full User matrix is :\n";
-    for (size_t i = 0; i < U.size(); i++)
-    {
-        for (size_t j = 0; j < U[0].size(); j++)
-        {
-            cout << U[i][j] << " ";
-        }
-        cout << "\n";
-    }
-
-    cout << "checking User matrix shares :\n";
-    vector<vector<int>> U0 = loadMatrix("U_ShareMatrix0.txt");
-    vector<vector<int>> U1 = loadMatrix("U_ShareMatrix1.txt");
-    for (size_t i = 0; i < U0.size(); i++)
-    {
-        for (size_t j = 0; j < U0[0].size(); j++)
-        {
-            cout << (U0[i][j] + U1[i][j]) % modValue << " ";
-        }
-        cout << "\n";
-    }
-    cout << "Full Item matrix is :\n";
-    for (size_t i = 0; i < V.size(); i++)
-    {
-        for (size_t j = 0; j < V[0].size(); j++)
-        {
-            cout << V[i][j] << " ";
-        }
-        cout << "\n";
-    }
-
-    cout << "checking Item matrix shares :\n";
-    vector<vector<int>> V0 = loadMatrix("V_ShareMatrix0.txt");
-    vector<vector<int>> V1 = loadMatrix("V_ShareMatrix1.txt");
-    for (size_t i = 0; i < V0.size(); i++)
-    {
-        for (size_t j = 0; j < V0[0].size(); j++)
-        {
-            cout << (V0[i][j] + V1[i][j]) % modValue << " ";
-        }
-        cout << "\n";
-    }
-
-    if (U.empty() || V.empty())
-    {
-        std::cerr << "[Dealer] Failed to load matrices.\n";
+    if (U.empty() || V.empty()) {
+        std::cerr << "[Dealer] Failed to load full U or V matrices.\n";
         return;
     }
 
+    // Basic index checks
+    if (query_i < 0 || (size_t)query_i >= U.size()) {
+        std::cerr << "[Dealer] query_i out of range: " << query_i << "\n";
+        return;
+    }
+    if (query_j < 0 || (size_t)query_j >= V.size()) {
+        std::cerr << "[Dealer] query_j out of range: " << query_j << "\n";
+        return;
+    }
+
+    // print (optional) - keep short in production
+    cout << "\nDealer: Checking query #" << (qi+1) << " (" << query_i << "," << query_j << ")\n";
+
     vector<int> ui = U[query_i];
     vector<int> vj = V[query_j];
-    int k = ui.size();
+    int k = (int)ui.size();
 
-    // Step 1: compute dot product <ui, vj>
-    int dot = 0;
+    if ((int)vj.size() != k) {
+        std::cerr << "[Dealer] Dimension mismatch: ui.size()=" << k << " but vj.size()=" << vj.size() << "\n";
+        return;
+    }
+
+    // compute dot product using wider accumulator
+    long long dot_acc = 0;
+    for (int t = 0; t < k; ++t) {
+        dot_acc += (long long)ui[t] * (long long)vj[t];
+        // if product might become huge you can periodically reduce:
+        if (llabs(dot_acc) > (1ll<<60)) dot_acc = mod_norm(dot_acc); // keep small
+    }
+    int dot = mod_norm(dot_acc);
+
+    // compute factor = (1 - dot) mod modValue
+    int factor = mod_norm(1 - dot);
+
+    // compute u_scaled = ui * factor mod modValue
+    vector<int> u_scaled(k);
     for (int t = 0; t < k; ++t)
-        dot = (dot + ui[t] * vj[t]) % modValue;
+        u_scaled[t] = mod_norm((long long)ui[t] * (long long)factor);
 
-    // Step 2: compute (1 - <ui, vj>) mod modValue
-    int factor = (1 - dot) % modValue;
-    if (factor < 0)
-        factor += modValue;
-
-    // Step 3: compute vj * factor
-    vector<int> v_scaled(k);
+    // expected updated vj
+    vector<int> expected(k);
     for (int t = 0; t < k; ++t)
-        v_scaled[t] = (vj[t] * factor) % modValue;
+        expected[t] = mod_norm((long long)vj[t] + (long long)u_scaled[t]);
 
-    // Step 4: ui = ui + v_scaled
-    for (int t = 0; t < k; ++t)
-        ui[t] = (ui[t] + v_scaled[t]) % modValue;
+    // Validate finalShare sizes
+    if ((size_t)query_j >= finalShare0.size() || (size_t)query_j >= finalShare1.size()) {
+        std::cerr << "[Dealer] Received final shares do not contain index " << query_j << ".\n";
+        return;
+    }
+    if ((int)finalShare0[query_j].size() != k || (int)finalShare1[query_j].size() != k) {
+        std::cerr << "[Dealer] Final share row length mismatch: expected " << k
+                  << ", got " << finalShare0[query_j].size()
+                  << " and " << finalShare1[query_j].size() << "\n";
+        return;
+    }
 
-    // reconstruct and save
+    // reconstruct from MPC outputs
     vector<int> reconstructed(k);
-    for (int i = 0; i < k; i++)
-        reconstructed[i] = (finalShare0[i] + finalShare1[i]) % modValue;
+    for (int t = 0; t < k; ++t)
+        reconstructed[t] = mod_norm((long long)finalShare0[query_j][t] + (long long)finalShare1[query_j][t]);
 
-    // --- Compare and display ---
-    cout << "\nDealer: Checking correctness for query (" << query_i << "," << query_j << ")\n";
+    // Print comparison and basic check
     cout << "Reconstructed (from MPC): ";
-    for (int val : reconstructed)
-        cout << val << " ";
+    for (int val : reconstructed) cout << val << " ";
     cout << "\nExpected (direct computation): ";
-    for (int val : ui)
-        cout << val << " ";
+    for (int val : expected) cout << val << " ";
     cout << "\n";
 
-    //  write both to file
-    // ofstream checkFile("correctness_check.txt", ios::app);
-    // checkFile << "Query (" << query_i << "," << query_j << ")\n";
-    // checkFile << "MPC Result: ";
-    // for (int val : reconstructed) checkFile << val << " ";
-    // checkFile << "\nExpected:   ";
-    // for (int val : expected) checkFile << val << " ";
-    // checkFile << "\n\n";
-    // checkFile.close();
+    // quick correctness flag
+    bool ok = true;
+    for (int t = 0; t < k; ++t) {
+        if (reconstructed[t] != expected[t]) { ok = false; break; }
+    }
+    if (ok)
+        cout << "Dealer: CORRECT for query (" << query_i << "," << query_j << ").\n";
+    else
+        cout << "Dealer: MISMATCH for query (" << query_i << "," << query_j << ").\n";
+
+    // (optional) write to file for logging
+    // ofstream ofs("correctness_log.txt", ios::app);
+    // ofs << "Query (" << query_i << "," << query_j << ") result: " << (ok ? "OK" : "FAIL") << "\n";
+    // ofs.close();
 }
+
+
 
 awaitable<void> dealer_main(boost::asio::io_context &io,
                             const vector<pair<int, int>> &queries,
@@ -236,7 +249,7 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
         // dpf generation
         DpfKey dpf;
         dpf.targetLocation = query_j;
-        int dpf_size = pow(2, k);
+        int dpf_size = n;
         int totalNodes = 2 * dpf_size - 1;
         dpf.V0.resize(totalNodes, (u128)0);
         dpf.V1.resize(totalNodes, (u128)0);
@@ -247,13 +260,12 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
         dpf.FCW0.resize(k, (u128)0);
         dpf.FCW1.resize(k, (u128)0);
         generateDPF(dpf, dpf_size);
-        u128 rootSeed= dpf.V0[0];
-        vector<bool> T0= dpf.T0;
-        vector<bool>T1= dpf.T1;
-        vector<u128> CW= dpf.CW;
-        vector<u128> FCW0= dpf.FCW0;
-        vector<u128> FCW1= dpf.FCW1;
-
+        u128 rootSeed = dpf.V0[0];
+        vector<bool> T0 = dpf.T0;
+        vector<bool> T1 = dpf.T1;
+        vector<u128> CW = dpf.CW;
+        vector<u128> FCW0 = dpf.FCW0;
+        vector<u128> FCW1 = dpf.FCW1;
 
         // Send to both parties in parallel
         co_spawn(io, [&]() -> awaitable<void>
@@ -277,8 +289,8 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
             co_return; }(), detached);
 
         // Wait for both parties to return final shares
-        vector<int> finalShare0 = co_await receiveFinalShares(socket_p0, "Party0");
-        vector<int> finalShare1 = co_await receiveFinalShares(socket_p1, "Party1");
+        vector<vector<int>> finalShare0 = co_await receiveFinalShares(socket_p0, "Party0");
+        vector<vector<int>> finalShare1 = co_await receiveFinalShares(socket_p1, "Party1");
         checkCorrectnessAndUpdate(query_i, query_j, modValue, finalShare0, finalShare1, qi);
     }
 

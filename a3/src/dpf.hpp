@@ -38,6 +38,11 @@ namespace
     }
 }
 
+static inline uint64_t mod64(u128 x)
+{
+    return (uint64_t)(x & 63ULL); // 63 = 0b111111, same as x % 64
+}
+
 u128 bytesToUint128(const array<uint8_t, 16> &arr)
 {
     u128 val = 0;
@@ -171,7 +176,7 @@ struct DpfKey
     vector<u128> FCW1;   // final correction word at leaf level for party 1
 };
 
-vector<vector<u128>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
+awaitable<vector<vector<int>>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M)
 {
     // int dpf_size = pow(2, k);
     int height = (int)(ceil(log2(dpf_size)));
@@ -179,8 +184,10 @@ vector<vector<u128>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<boo
     int totalNodes = 2 * leaves - 1;
     int lastParentIdx = (totalNodes - 2) / 2;
     vector<u128> VShare(totalNodes);
+     int rowLength = M.size();
+    vector<u128> P0(rowLength), P1(rowLength);
+    vector<vector<int>> result(leaves, vector<int>(rowLength));
     VShare[0] = rootSeed;
-    vector<vector<u128>> result(leaves);
 
     // generate tree using provided key {V,T,CW,dpf_size}
     for (int l = 0; l < height; l++)
@@ -211,15 +218,14 @@ vector<vector<u128>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<boo
     }
 
     // modify fcw vector and echange with other party
-    int rowLength = M.size();
-    vector<u128> P0(rowLength), P1(rowLength);
+   
     for (int i = 0; i < rowLength; i++)
     {
-        P0[i] = FCW[i] - M[i];
+        P0[i] = M[i] - FCW[i];
     }
 
-    co_await sendVector(peer_socket, P0);
-    co_await recvVector(peer_socket, P1);
+    co_await sendVector_u128(peer_socket, P0);
+    co_await recvVector_u128(peer_socket, P1);
     vector<u128> fcwm(rowLength);
 
     for (int i = 0; i < rowLength; i++)
@@ -235,16 +241,21 @@ vector<vector<u128>> evalDPF(tcp::socket &peer_socket, u128 rootSeed, vector<boo
         vector<u128> currLeaf(rowLength);
         // result[i] = VShare[leafStart + i];
         currLeaf = prgVector(VShare[i + leafStart], rowLength);
+        // converting to modulus 64 for readability
+        for (int j = 0; j < rowLength; j++)
+            currLeaf[j] = mod64(currLeaf[j]);
+
         for (int j = 0; j < rowLength; j++)
             if (T[leafStart + i])
             {
-                currLeaf[j] += fcwm[j];
+                // currLeaf[j] += fcwm[j];
+                currLeaf[j] = mod64(currLeaf[j] + fcwm[j]);
             }
-
-        result.push_back(currLeaf);
+        for (int j = 0; j < rowLength; j++)
+            result[i][j] = (int)(currLeaf[j]);
     }
 
-    return result;
+    co_return result;
 }
 
 void generateDPF(DpfKey &dpf, int domainSize)
