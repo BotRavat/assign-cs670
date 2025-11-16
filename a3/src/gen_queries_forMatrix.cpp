@@ -175,7 +175,6 @@ struct DpfKey
 
 vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, int dpf_size, vector<u128> &FCW, vector<u128> &M, vector<u128> &fcwm)
 {
-    // int dpf_size = pow(2, k);
     int height = (int)(ceil(log2(dpf_size)));
     int leaves = 1 << (height);
     int totalNodes = 2 * leaves - 1;
@@ -214,12 +213,12 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
     // modify fcw vector and echange with other party
     int rowLength = M.size();
-    vector<u128> P0(rowLength), P1(rowLength);
-    for (int i = 0; i < rowLength; i++)
-    {
-        P0[i] = FCW[i] - M[i];
-    }
-    vector<u128> fcwm(rowLength);
+    // vector<u128> P0(rowLength), P1(rowLength);
+    // for (int i = 0; i < rowLength; i++)
+    // {
+    //     P0[i] = FCW[i] - M[i];
+    // }
+    // vector<u128> fcwm(rowLength);
 
     // for (int i = 0; i < rowLength; i++)
     // {
@@ -233,7 +232,10 @@ vector<vector<u128>> evalDPF(u128 rootSeed, vector<bool> &T, vector<u128> &CW, i
 
         vector<u128> currLeaf;
         // result[i] = VShare[leafStart + i];
-        currLeaf = prgVector(VShare[i+leafStart], rowLength);
+        currLeaf = prgVector(VShare[i + leafStart], rowLength);
+        for (int j = 0; j < rowLength; j++)
+            currLeaf[j] = mod64(currLeaf[j]);
+
         for (int j = 0; j < rowLength; j++)
             if (T[leafStart + i])
             {
@@ -255,12 +257,75 @@ void EvalFull(DpfKey &dpf, int dpf_size, int totaldpfs)
     vector<u128> CW = dpf.CW;
     vector<u128> FCW0 = dpf.FCW0;
     vector<u128> FCW1 = dpf.FCW1;
-    vector<u128> M0,M1; // will integrate M later for now using dummy M
+    vector<u128> M0, M1; // will integrate M later for now using dummy M
+    M0 = {32, 5, 7, 15};
+    M1 = {45, 8, 9, 20};
+    int rowLength = M0.size();
+    vector<u128> P0(rowLength), P1(rowLength);
+    for (int i = 0; i < rowLength; i++)
+    {
+        P0[i] = mod64(M0[i] - FCW0[i]);
+        P1[i] = mod64(M1[i] - FCW1[i]);
+    }
+    vector<u128> fcwm(rowLength);
 
+    for (int i = 0; i < rowLength; i++)
+    {
+        // fcwm[i] = P0[i] + P1[i];
+        fcwm[i] = mod64(P0[i] + P1[i]);
+    }
     vector<vector<u128>> eval0, eval1;
-    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0,M0);
-    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1,M1);
+    eval0 = evalDPF(V0[0], T0, CW, dpf_size, FCW0, M0, fcwm);
+    eval1 = evalDPF(V1[0], T1, CW, dpf_size, FCW1, M1, fcwm);
 
+    // multiply by -1;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            eval1[i][j] = -eval1[i][j];
+        }
+    }
+
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            // cout << "in loop i:" << i << " j:" << j << endl;
+            print_uint128(mod64(eval0[i][j]));
+            cout << " ";
+        }
+        cout << endl;
+    }
+    cout << "----------------------------------" << endl;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            print_uint128(mod64(eval1[i][j]));
+            cout << " ";
+        }
+
+        cout << endl;
+    }
+    cout << "Final result after adding both party shares:" << endl;
+    for (int i = 0; i < dpf_size; i++)
+    {
+        for (int j = 0; j < rowLength; j++)
+        {
+            print_uint128(mod64(eval0[i][j] + eval1[i][j]));
+            cout << " ";
+        }
+        cout << endl;
+    }
+
+    cout << "expected values at target location:" << endl;
+    for (int i = 0; i < rowLength; i++)
+    {
+        print_uint128(mod64(M0[i] + M1[i]));
+        cout << " ";
+    }
+    cout << endl;
 }
 
 void generateDPF(DpfKey &dpf, int domainSize)
