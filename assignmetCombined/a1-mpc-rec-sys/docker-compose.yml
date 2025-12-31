@@ -1,7 +1,7 @@
 services:
   generate:
     build: .
-    container_name: generate_container
+    container_name: generate_container_a1
     environment:
       USERS: ${USERS}
       ITEMS: ${ITEMS}
@@ -13,7 +13,7 @@ services:
 
   dealer:
     build: .
-    container_name: dealer_container
+    container_name: dealer_container_a1
     depends_on:
       - generate
     environment:
@@ -25,7 +25,7 @@ services:
 
   party0:
     build: .
-    container_name: party0_container
+    container_name: party0_container_a1
     depends_on:
       - dealer
     command: ["./party0.out"]
@@ -35,7 +35,7 @@ services:
 
   party1:
     build: .
-    container_name: party1_container
+    container_name: party1_container_a1
     depends_on:
       - party0
     command: ["./party1.out"]

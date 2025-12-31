@@ -5,12 +5,14 @@
 #include <boost/asio.hpp>
 #include "../headerFiles/mpcOperations.h"
 #include "../common.hpp"
+#include "dpf.hpp"
 
 using boost::asio::awaitable;
 using boost::asio::use_awaitable;
 using boost::asio::ip::tcp;
 using namespace std;
 
+using u128 = unsigned __int128;
 // Coroutine to receive all shares and triplets from dealer
 awaitable<bool> receiveSharesFromDealer(
     tcp::socket &socket,
@@ -19,7 +21,8 @@ awaitable<bool> receiveSharesFromDealer(
     vector<int> &vectorA1, vector<int> &vectorB1, int &scalarC1,
     vector<int> &AShare1, int &bShare1, vector<int> &CShare1,
     vector<int> &eShare1,
-    int &one1, int &query_i)
+    int &one1, int &query_i, u128 &rootSeed, vector<bool> &T1, vector<u128> &CW, vector<u128> &FCW1)
+
 {
 
     int first;
@@ -30,19 +33,20 @@ awaitable<bool> receiveSharesFromDealer(
     n = first;
 
     // co_await recv_int(socket, n);
-    // cout << "Party0: received n = " << n << "\n"
+    // cout << "Party1: received n = " << n << "\n"
     //      << flush;
 
     co_await recv_int(socket, k);
-    // cout << "Party0: received k = " << k << "\n"
-    //      << flush;
+    cout << "Party0: received k = " << k << "\n"
+         << flush;
 
     co_await recv_int(socket, modValue);
-    // cout << "Party0: received modValue = " << modValue << "\n"
-    //      << flush;
+    cout << "Party0: received modValue = " << modValue << "\n"
+         << flush;
 
     AVShare1.resize(n);
     BMShare1.resize(n, vector<int>(k));
+    CVShare1.resize(k);
 
     vectorA1.resize(k);
     vectorB1.resize(k);
@@ -52,50 +56,69 @@ awaitable<bool> receiveSharesFromDealer(
 
     eShare1.resize(n);
 
+    T1.resize(2 * n - 1);
+    CW.resize((int)(ceil(log2(n))) + 1);
+    FCW1.resize(k);
+
     // matrix-vector triplet
     co_await recvVector(socket, AVShare1);
     co_await recvMatrix(socket, BMShare1);
     co_await recvVector(socket, CVShare1);
-    // cout << "Party0: received C0 size = " << CVShare1.size() << "\n"
-    //      << flush;
+    cout << "Party0: received C0 size = " << CVShare1.size() << "\n"
+         << flush;
 
     // vector dot product triplet
     // vector triplet for U-V computation
     co_await recvVector(socket, vectorA1);
     co_await recvVector(socket, vectorB1);
     co_await recv_int(socket, scalarC1);
-    // cout << "Party0: received A10 size = " << vectorA1.size() << "\n"
-    //      << flush;
-    // cout << "Party0: received c0 = " << scalarC1 << "\n"
-    //      << flush;
+    cout << "Party0: received A10 size = " << vectorA1.size() << "\n"
+         << flush;
+    cout << "Party0: received c0 = " << scalarC1 << "\n"
+         << flush;
 
     // receive scalar-vector triplet
     co_await recvVector(socket, AShare1);
     co_await recv_int(socket, bShare1);
     co_await recvVector(socket, CShare1);
-    // cout << "Party0: received bShare1 = " << bShare1 << "\n"
-    //      << flush;
-    // cout << "Party0: received CShare1 size = " << CShare1.size() << "\n"
-    //      << flush;
+    cout << "Party0: received bShare1 = " << bShare1 << "\n"
+         << flush;
+    cout << "Party0: received CShare1 size = " << CShare1.size() << "\n"
+         << flush;
 
     // e-share
     co_await recvVector(socket, eShare1);
 
     co_await recv_int(socket, one1);
-    // cout << "Party0: received one1 = " << one1 << "\n"
-    //      << flush;
+    cout << "Party0: received one1 = " << one1 << "\n"
+         << flush;
     co_await recv_int(socket, query_i);
-    // cout << "Party0: received query_i = " << query_i << "\n"
-    //      << flush;
+    cout << "Party1: received query_i = " << query_i << "\n"
+         << flush;
+
+    co_await recv_u128(socket, rootSeed);
+    cout << "Party1: received rootSeed\n"
+         << flush;
+
+    co_await recvVectorBool(socket, T1);
+    cout << "Party1: received T1 size = " << T1.size() << "\n"
+         << flush;
+
+    co_await recvVector_u128(socket, CW);
+    cout << "Party1: received CW size = " << CW.size() << "\n"
+         << flush;
+    co_await recvVector_u128(socket, FCW1);
+    cout << "Party1: received FCW size = " << FCW1.size() << "\n"
+         << flush;
 
     co_return true;
 }
 
-awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<int> &U0i)
+awaitable<void> sendFinalSharesToDealer(tcp::socket &socket, const vector<vector<int>> &VM)
 {
-    co_await sendVector(socket, U0i);
+    co_await sendMatrix(socket, VM);
 
-    cout << "Party1: sent final user vector share to dealer ( for assignment purpose only)\n";
+    cout << "Party: sent final item matrix share to dealer\n";
     co_return;
 }
 
@@ -136,16 +159,22 @@ awaitable<void> party1(boost::asio::io_context &io_context)
 
         int one1, query_i;
 
+        u128 rootSeed;
+        vector<bool> T1;
+        vector<u128> CW;
+        vector<u128> FCW1;
+
         while (true)
         {
 
+            cout<<"Party1: waiting to receive shares from dealer...\n"; 
             // receive all shares of 1 query from dealer
             bool has_query = co_await receiveSharesFromDealer(
                 socket, n, k, modValue,
                 AVShare1, BMShare1, CVShare1,
                 vectorA1, vectorB1, scalarC1,
                 AShare1, bShare1, CShare1,
-                eShare1, one1, query_i);
+                eShare1, one1, query_i, rootSeed, T1, CW, FCW1);
 
             if (!has_query)
             {
@@ -195,7 +224,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             co_await recvMatrix(peer_socket, blindM0);
 
             // compute alphaM, betaM
-              vector<int> alphaV(n);
+            vector<int> alphaV(n);
             vector<vector<int>> betaM(n, vector<int>(k));
             for (size_t it = 0; it < n; it++)
             {
@@ -205,6 +234,13 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             }
 
             // get the share of row vi
+            // vector<int> V1j = mpcVectorandMatrixMul(
+            //     alphaV,
+            //     V1,
+            //     betaM,
+            //     AVShare1,
+            //     CShare1,
+            //     modValue);
 
             vector<int> V1j = mpcVectorandMatrixMulBeaver(
                 alphaV,
@@ -215,11 +251,11 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 false,
                 modValue);
 
-            // cout << "Party1: computed share of Vj\n";
-            // for (int it = 0; it < V1j.size(); it++)
-            // {
-            //     cout << V1j[it] << " ";
-            // }
+            cout << "Party1: computed share of Vj\n";
+            for (int it = 0; it < V1j.size(); it++)
+            {
+                cout << V1j[it] << " ";
+            }
             cout << endl;
             // take ith row of matrix user
             vector<int> U1i = U1[i];
@@ -268,14 +304,14 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 scalarC1,
                 modValue);
 
-            // cout<<"Dot product is : "<<UdotV1<<endl;
+            cout << "Dot product is : " << UdotV1 << endl;
 
             // compute share of 1-<ui,vj>
             int sub1 = (one1 - UdotV1) % modValue;
             sub1 = sub1 < 0 ? sub1 + modValue : sub1;
-            // cout<<"1- dot is : "<<sub1<<endl;
+            cout << "1- dot is : " << sub1 << endl;
 
-            // to compute vj(1- <ui,vj)
+            // to compute ui(1- <ui,vj)
 
             // get beaver triplet of scalar and vector
 
@@ -285,7 +321,7 @@ awaitable<void> party1(boost::asio::io_context &io_context)
             vector<int> blindSV1(k);
             for (size_t it = 0; it < k; it++)
             {
-                blindSV1[it] = (V1j[it] + AShare1[it]) % modValue;
+                blindSV1[it] = (U1i[it] + AShare1[it]) % modValue;
             }
             int blind_scalar1 = (sub1 + bShare1) % modValue;
 
@@ -313,26 +349,30 @@ awaitable<void> party1(boost::asio::io_context &io_context)
                 CShare1,
                 modValue);
 
-            //     cout<<"mul is : ";
-            //      for (int it = 0; it < mul1.size(); it++)
-            // {
-            //     cout << mul1[it] << " ";
-            // }
+            cout << "mul is : ";
+            for (int it = 0; it < mul1.size(); it++)
+            {
+                cout << mul1[it] << " ";
+            }
             cout << endl;
 
-            // now calculate ui=ui+vj(1-<ui,vj>)
-            // cout<<"final updated ui is: "<<endl;
-            // for (size_t it = 0; it < k; it++)
-            // {
-            //     U1i[it] = (U1i[it] + mul1[it]) % modValue;
-            //     cout << U1i[it] << " ";
-            // }
-            U1[i] = U1i;
-            saveMatrix("/app/matrices/U_ShareMatrix0.txt", U1);
+            vector<u128> M1;
+            M1.reserve(mul1.size());
+            for (int v : mul1)
+            {
+                v = v % modValue;
+                v = v < 0 ? v + modValue : v;
+                M1.push_back(static_cast<u128>(v));
+            }
+
+            int dpf_size = n;
+            vector<vector<int>> result = co_await evalDPF(peer_socket, rootSeed, T1, CW, dpf_size, FCW1, M1);
+
+            cout << "Party0: updated user vector share U0i\n";
+            // saveMatrix("U_ShareMatrix0.txt", U1);
             // sent share back to client
-            
-            // co_await sendFinalSharesToDealer(socket, U1i);
-            cout << "Party1: updated user vector share U0i\n";
+
+            co_await sendFinalSharesToDealer(socket, result);
         }
         socket.close();
         peer_socket.close();

@@ -346,8 +346,6 @@ awaitable<void> dealer_main(boost::asio::io_context &io,
 
 int main(int argc, char *argv[])
 {
-      auto start = std::chrono::high_resolution_clock::now();
-    
     try
     {
         int modValue = 64;
@@ -392,14 +390,6 @@ int main(int argc, char *argv[])
         boost::asio::io_context io;
         co_spawn(io, dealer_main(io, queries, n, k, modValue), detached);
         io.run();
-
-          auto end = std::chrono::high_resolution_clock::now();
-
-    // compute time in milliseconds
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-    cout << "Total execution time: " << duration << " ms\n";
-    
     }
     catch (exception &e)
     {

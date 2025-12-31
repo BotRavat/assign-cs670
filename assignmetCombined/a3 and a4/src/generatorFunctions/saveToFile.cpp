@@ -20,9 +20,9 @@ int main(int argc, char *argv[])
 
     if (argc >= 4)
     {
-        m = atoi(argv[1]); // number of users (rows in U)
-        n = atoi(argv[2]); // number of items (rows in V)
-        k = atoi(argv[3]); // number of features
+        m = atoi(argv[1]);
+        n = atoi(argv[2]);
+        k = atoi(argv[3]);
     }
 
     cout << "Generating matrices with m=" << m << ", k=" << k << ", n=" << n << "\n";
